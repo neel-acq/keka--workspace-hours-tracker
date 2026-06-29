@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Keka Hours Tracker",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "description": "Track Keka attendance, calculate exit time, and send Workspace EOD updates to Teams",
   "permissions": [
     "storage",
@@ -19,6 +19,12 @@
     "https://workspace.acquaintsoft.com/*",
     "https://*.acquaintsoft.com/*",
     "https://*.teams.live.com/*",
+    "https://teams.live.com/*",
+    "https://*.teams.microsoft.com/*",
+    "https://teams.microsoft.com/*",
+    "https://*.skype.com/*",
+    "https://*.asm.skype.com/*",
+    "https://*.cloud.microsoft/*",
     "https://*.vercel.app/*"
   ],
   "background": {
@@ -42,6 +48,31 @@
         "content/modals/modal-bridge.js"
       ],
       "css": ["content/modals/tracker-modal.css"]
+    },
+    {
+      "matches": [
+        "https://teams.live.com/*",
+        "https://*.teams.live.com/*",
+        "https://teams.microsoft.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://*.cloud.microsoft/*"
+      ],
+      "js": ["config.js", "shared/logger.js", "content/teams/token-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://teams.live.com/*",
+        "https://*.teams.live.com/*",
+        "https://teams.microsoft.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://*.cloud.microsoft/*"
+      ],
+      "js": ["content/teams/token-hook-main.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "action": {

@@ -22,9 +22,64 @@ function initWorkspacePage() {
   fetchAndRenderTimesheet();
 }
 
+const TEAMS_OPEN_URL = "https://teams.live.com/v2/";
+let teamsTokenPollTimer = null;
+
+function openTeamsForTokenCapture() {
+  if (typeof TEAMS_CAPTURE_LOGGING !== "undefined" && TEAMS_CAPTURE_LOGGING) {
+    console.log("[Teams UI] opening", TEAMS_OPEN_URL);
+  }
+  chrome.tabs.create({ url: TEAMS_OPEN_URL }, (tab) => {
+    if (!tab?.id) return;
+    chrome.runtime.sendMessage({
+      type: "SETUP_TEAMS_TOKEN_CAPTURE",
+      tabId: tab.id,
+    });
+    startTeamsTokenStatusPoll();
+  });
+}
+
+function startTeamsTokenStatusPoll() {
+  if (teamsTokenPollTimer) clearInterval(teamsTokenPollTimer);
+  let attempts = 0;
+
+  teamsTokenPollTimer = setInterval(() => {
+    attempts += 1;
+    chrome.storage.local.get(
+      ["teamsSkypeToken", "teamsTokenExpiry", "teamsTokenCapturedAt"],
+      async (data) => {
+        if (data.teamsSkypeToken) {
+          updateTeamsTokenStatus(data.teamsSkypeToken, data.teamsTokenExpiry);
+          if (!data.teamsTokenExpiry || data.teamsTokenExpiry > Date.now()) {
+            clearInterval(teamsTokenPollTimer);
+            teamsTokenPollTimer = null;
+            const stored = await chrome.storage.local.get([
+              "teamsFromId",
+              "teamsConversationId",
+            ]);
+            if (data.teamsSkypeToken && !stored.teamsFromId) {
+              const idResponse = await chrome.runtime.sendMessage({
+                type: "FETCH_TEAMS_USER_ID",
+              });
+              if (idResponse?.success && idResponse.teamsFromId) {
+                updateTeamsFromIdUI(idResponse.teamsFromId);
+              }
+            }
+            await fetchTeamsGroups(stored.teamsConversationId);
+          }
+        }
+        if (attempts >= 90) {
+          clearInterval(teamsTokenPollTimer);
+          teamsTokenPollTimer = null;
+        }
+      },
+    );
+  }, 2000);
+}
+
 function bindWorkspaceEvents() {
   document.getElementById("openTeamsBtn")?.addEventListener("click", () => {
-    chrome.tabs.create({ url: "https://teams.live.com/" });
+    openTeamsForTokenCapture();
   });
 
   document.getElementById("openWorkspaceBtn")?.addEventListener("click", () => {
@@ -34,7 +89,7 @@ function bindWorkspaceEvents() {
   document
     .getElementById("refreshTeamsTokenBtn")
     ?.addEventListener("click", () => {
-      chrome.tabs.create({ url: "https://teams.live.com/" });
+      openTeamsForTokenCapture();
     });
 
   document
@@ -95,6 +150,25 @@ function bindWorkspaceEvents() {
   document
     .getElementById("timesheetOpenTasksBtn")
     ?.addEventListener("click", openWorkspaceTasks);
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (
+      changes.teamsSkypeToken ||
+      changes.teamsTokenExpiry ||
+      changes.teamsTokenCapturedAt
+    ) {
+      chrome.storage.local.get(
+        ["teamsSkypeToken", "teamsTokenExpiry", "teamsFromId"],
+        (data) => {
+          updateTeamsTokenStatus(data.teamsSkypeToken, data.teamsTokenExpiry);
+          if (data.teamsFromId) {
+            updateTeamsFromIdUI(data.teamsFromId);
+          }
+        },
+      );
+    }
+  });
 
   document.getElementById("workspaceTaskList")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".task-start-btn");
@@ -191,6 +265,10 @@ async function loadWorkspaceData() {
 
   updateTeamsTokenStatus(data.teamsSkypeToken, data.teamsTokenExpiry);
 
+  if (!data.teamsSkypeToken) {
+    hookOpenTeamsTabsForCapture();
+  }
+
   if (
     !data.teamsFromId &&
     data.teamsSkypeToken &&
@@ -212,6 +290,26 @@ async function loadWorkspaceData() {
   await updateSmartSuggestion();
 }
 
+function hookOpenTeamsTabsForCapture() {
+  const patterns = [
+    "https://teams.live.com/*",
+    "https://*.teams.live.com/*",
+    "https://teams.microsoft.com/*",
+    "https://*.teams.microsoft.com/*",
+  ];
+  chrome.tabs.query({ url: patterns }, (tabs) => {
+    tabs.forEach((tab) => {
+      if (tab.id) {
+        chrome.runtime.sendMessage({
+          type: "SETUP_TEAMS_TOKEN_CAPTURE",
+          tabId: tab.id,
+        });
+      }
+    });
+    if (tabs.length) startTeamsTokenStatusPoll();
+  });
+}
+
 function updateTeamsTokenStatus(token, expiry) {
   const dot = document.getElementById("teamsTokenDot");
   const text = document.getElementById("teamsTokenText");
@@ -219,7 +317,18 @@ function updateTeamsTokenStatus(token, expiry) {
 
   if (!dot || !text || !subtext) return;
 
-  if (!token || !expiry) {
+  if (typeof TEAMS_CAPTURE_LOGGING !== "undefined" && TEAMS_CAPTURE_LOGGING) {
+    const preview = token
+      ? `${token.slice(0, 12)}… (${token.length} chars)`
+      : "(none)";
+    console.log("[Teams UI] status check:", {
+      teamsSkypeToken: preview,
+      teamsTokenExpiry: expiry ? new Date(expiry).toISOString() : null,
+      valid: !!(token && (!expiry || expiry > Date.now())),
+    });
+  }
+
+  if (!token) {
     dot.className = "status-dot red";
     text.textContent = t("ws_token_none");
     subtext.textContent = t("ws_token_none_hint");
@@ -227,11 +336,18 @@ function updateTeamsTokenStatus(token, expiry) {
   }
 
   const now = Date.now();
-  if (now > expiry) {
+  if (expiry && now > expiry) {
     dot.className = "status-dot red";
     text.textContent = t("ws_token_expired");
     subtext.textContent = t("ws_token_expired_hint");
   } else {
+    if (!expiry) {
+      dot.className = "status-dot green";
+      text.textContent = t("ws_token_valid");
+      subtext.textContent = "";
+      return;
+    }
+
     const hoursLeft = Math.floor((expiry - now) / (1000 * 60 * 60));
     const minutesLeft = Math.floor(
       ((expiry - now) % (1000 * 60 * 60)) / (1000 * 60),

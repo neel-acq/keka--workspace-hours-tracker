@@ -149,14 +149,23 @@ function loadData() {
 
         if (todayEntry) {
             if (todayEntry.inOutArray && todayEntry.inOutArray.length > 0) {
-                displayDataFromArray(todayEntry.inOutArray);
+                displayDataFromArray(todayEntry.inOutArray, todayEntry);
                 displayInOutList(todayEntry.inOutArray);
             } else if (todayEntry.checkIn) {
                 const inTime = parseKekaTime(todayEntry.checkIn);
                 const outTime = todayEntry.checkOut && todayEntry.checkOut !== 'MISSING' ? parseKekaTime(todayEntry.checkOut) : null;
+                const effectiveSeconds = parseKekaDuration(todayEntry.effectiveHours);
+                const breakSeconds = parseKekaDuration(todayEntry.breakTime);
+                const grossSeconds = parseKekaDuration(todayEntry.grossHours);
 
                 if (inTime) {
-                    displayData(inTime.toISOString(), outTime ? outTime.toISOString() : null, null, null);
+                    displayData(
+                        inTime.toISOString(),
+                        outTime ? outTime.toISOString() : null,
+                        effectiveSeconds,
+                        breakSeconds,
+                        grossSeconds
+                    );
                 } else {
                     displayNoData();
                 }
@@ -193,7 +202,7 @@ function parseKekaTime(timeStr) {
 }
 
 // Display data from IN/OUT array
-function displayDataFromArray(inOutArray) {
+function displayDataFromArray(inOutArray, todayEntry = null) {
     if (!inOutArray || inOutArray.length === 0) {
         displayNoData();
         return;
@@ -249,13 +258,14 @@ function displayDataFromArray(inOutArray) {
     displayData(
         firstIn ? firstIn.toISOString() : null,
         lastOut ? lastOut.toISOString() : null,
-        totalEffectiveSeconds,
-        totalBreakSeconds
+        parseKekaDuration(todayEntry?.effectiveHours) ?? totalEffectiveSeconds,
+        parseKekaDuration(todayEntry?.breakTime) ?? totalBreakSeconds,
+        parseKekaDuration(todayEntry?.grossHours)
     );
 }
 
 // Display data
-function displayData(inTime, outTime, effectiveSeconds, breakSeconds) {
+function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecondsOverride = null) {
     if (!inTime) {
         displayNoData();
         return;
@@ -296,7 +306,9 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds) {
     document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m`;
 
     let displayGrossSeconds;
-    if (outDate) {
+    if (grossSecondsOverride != null) {
+        displayGrossSeconds = grossSecondsOverride;
+    } else if (outDate) {
         displayGrossSeconds = (outDate - inDate) / 1000;
     } else {
         const now = new Date();
@@ -604,7 +616,7 @@ function startCountdown() {
 
     countdownInterval = setInterval(() => {
         chrome.storage.local.get(['scrapedAttendance'], (data) => {
-            if (!data.scrapedAttendance) return;
+            if (!data.scrapedAttendance || !isStorageForToday(data.scrapedAttendance)) return;
 
             const todayEntry = resolveTodayEntry(data.scrapedAttendance);
             if (!todayEntry || !todayEntry.inOutArray) return;
@@ -924,7 +936,8 @@ function loadShiftData() {
     errorState.style.display = 'none';
 
     chrome.storage.local.get(['scrapedAttendance'], (data) => {
-        if (!data.scrapedAttendance || !data.scrapedAttendance.entries || data.scrapedAttendance.entries.length === 0) {
+        if (!data.scrapedAttendance || !isStorageForToday(data.scrapedAttendance) ||
+            !data.scrapedAttendance.entries || data.scrapedAttendance.entries.length === 0) {
             // No data, show error
             loadingState.style.display = 'none';
             errorState.style.display = 'block';

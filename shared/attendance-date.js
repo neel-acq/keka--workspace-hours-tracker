@@ -5,15 +5,33 @@ function getTodayDateKey(date = new Date()) {
 }
 
 function getAttendanceDateKey(dateStr) {
-  if (!dateStr) return null;
+  if (dateStr == null || dateStr === '') return null;
+
+  if (typeof dateStr === 'number') {
+    const parsed = new Date(dateStr);
+    if (!Number.isNaN(parsed.getTime())) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: KEKA_TIMEZONE }).format(parsed);
+    }
+    return null;
+  }
+
   const s = String(dateStr).trim();
-  if (/[Zz]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) {
-    const parsed = new Date(s);
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return s;
+  }
+
+  const hasOffset = /[Zz]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s);
+  if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(s) || hasOffset) {
+    const normalized = hasOffset ? s : `${s.replace(' ', 'T')}Z`;
+    const parsed = new Date(normalized);
     if (!Number.isNaN(parsed.getTime())) {
       return new Intl.DateTimeFormat('en-CA', { timeZone: KEKA_TIMEZONE }).format(parsed);
     }
   }
-  return s.split('T')[0];
+
+  return s.split('T')[0] || null;
 }
 
 function formatAttendanceDisplayDate(dateKey) {
@@ -34,6 +52,35 @@ function formatTime12hIST(date) {
     hour12: true,
     timeZone: KEKA_TIMEZONE
   });
+}
+
+/** Punch/shift instants — ISO components are IST wall clock (Keka office time). */
+function parseKekaTimestamp(value) {
+  if (value == null || value === '') return null;
+
+  if (typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const s = String(value).trim();
+  if (!s) return null;
+
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+  if (iso) {
+    const parsed = new Date(`${iso[1]}T${iso[2]}+05:30`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseKekaDuration(str) {
+  if (!str || typeof str !== 'string') return null;
+  const m = str.trim().match(/^(\d+)h\s*(\d+)m$/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60;
 }
 
 function matchesTodayEntry(entry, today = new Date()) {

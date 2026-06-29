@@ -686,7 +686,7 @@ async function fetchAttendanceFromAPI() {
             const cached = await chrome.storage.local.get(['scrapedAttendance']);
             if (
                 cached.scrapedAttendance &&
-                attendanceHasToday(cached.scrapedAttendance)
+                isStorageForToday(cached.scrapedAttendance)
             ) {
                 return {
                     success: true,
@@ -771,19 +771,20 @@ function parseApiEntry(item) {
 
     // Format shift times
     if (item.shiftStartTime) {
-        const shiftStart = new Date(item.shiftStartTime);
-        entry.shiftStart = formatTime12hIST(shiftStart);
+        const shiftStart = parseKekaTimestamp(item.shiftStartTime);
+        if (shiftStart) entry.shiftStart = formatTime12hIST(shiftStart);
     }
 
     if (item.shiftEndTime) {
-        const shiftEnd = new Date(item.shiftEndTime);
-        entry.shiftEnd = formatTime12hIST(shiftEnd);
+        const shiftEnd = parseKekaTimestamp(item.shiftEndTime);
+        if (shiftEnd) entry.shiftEnd = formatTime12hIST(shiftEnd);
     }
 
     // Parse time entries (originalTimeEntries has all swipes)
     if (item.originalTimeEntries && Array.isArray(item.originalTimeEntries)) {
         item.originalTimeEntries.forEach(timeEntry => {
-            const swipeTime = new Date(timeEntry.timestamp);
+            const swipeTime = parseKekaTimestamp(timeEntry.timestamp);
+            if (!swipeTime) return;
             const timeStr = formatTime12hIST(swipeTime);
 
             // punchStatus: 0 = IN, 1 = OUT, 4 = Auto OUT

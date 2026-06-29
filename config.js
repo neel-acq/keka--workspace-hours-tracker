@@ -7,6 +7,9 @@ const API_ENABLED = true;
 // Set true to enable extension console.log / warn / error (shared/logger.js)
 const DEBUG_LOGGING = false;
 
+// Teams token capture logs — safe previews only, never logs the full token
+const TEAMS_CAPTURE_LOGGING = true;
+
 // Same 64-char hex as API ENCRYPTION_KEY — obscures response bodies in DevTools Network tab
 // eslint-disable-next-line no-unused-vars
 const API_RESPONSE_KEY =

@@ -10,24 +10,102 @@ const DEFAULT_EOD_MESSAGES = [
 
 const EIGHT_HOURS_SECONDS = 8 * 60 * 60;
 
+/** chrome.storage.local keys used for Teams / EOD (8 total). */
+const TEAMS_STORAGE_KEYS = [
+    'teamsSkypeToken',      // 1 — JWT skypetoken (main auth token)
+    'teamsTokenExpiry',     // 2 — expiry (ms epoch)
+    'teamsTokenCapturedAt', // 3 — last capture time (ms epoch)
+    'teamsFromId',          // 4 — sender id e.g. 8:live:.cid.xxx (from JWT)
+    'teamsDisplayName',     // 5 — your name shown in Teams messages
+    'teamsConversationId',  // 6 — selected group/chat id
+    'teamsPrewrittenMessages', // 7 — quick EOD message presets
+    'eodEnabled'            // 8 — EOD modal on/off
+];
+
+function teamsCaptureLog(...args) {
+    if (typeof TEAMS_CAPTURE_LOGGING !== 'undefined' && TEAMS_CAPTURE_LOGGING) {
+        console.log('[Teams Capture]', ...args);
+    }
+}
+
+function maskToken(token) {
+    if (!token || typeof token !== 'string') return '(empty)';
+    if (token.length <= 24) return `${token.slice(0, 8)}…`;
+    return `${token.slice(0, 12)}…${token.slice(-8)} (${token.length} chars)`;
+}
+
+function logTeamsStorageState(label = 'storage') {
+    chrome.storage.local.get(TEAMS_STORAGE_KEYS, (data) => {
+        const expiry = data.teamsTokenExpiry
+            ? new Date(data.teamsTokenExpiry).toISOString()
+            : null;
+        const captured = data.teamsTokenCapturedAt
+            ? new Date(data.teamsTokenCapturedAt).toISOString()
+            : null;
+        const valid = data.teamsSkypeToken && data.teamsTokenExpiry > Date.now();
+
+        teamsCaptureLog(`${label}:`, {
+            teamsSkypeToken: maskToken(data.teamsSkypeToken),
+            teamsTokenExpiry: expiry,
+            teamsTokenCapturedAt: captured,
+            teamsFromId: data.teamsFromId || null,
+            teamsDisplayName: data.teamsDisplayName || null,
+            teamsConversationId: data.teamsConversationId
+                ? `${String(data.teamsConversationId).slice(0, 24)}…`
+                : null,
+            teamsPrewrittenMessages: Array.isArray(data.teamsPrewrittenMessages)
+                ? `${data.teamsPrewrittenMessages.length} preset(s)`
+                : null,
+            eodEnabled: data.eodEnabled !== false,
+            tokenValid: !!valid
+        });
+    });
+}
+
+const TEAMS_WEB_REQUEST_URLS = [
+    'https://*.teams.live.com/*',
+    'https://teams.live.com/*',
+    'https://*.teams.microsoft.com/*',
+    'https://teams.microsoft.com/*',
+    'https://*.skype.com/*',
+    'https://*.asm.skype.com/*',
+    'https://*.cloud.microsoft/*'
+];
+
+let lastSavedTeamsToken = null;
+
 function initEodModule() {
+    const eodLog = typeof createLogger === 'function' ? createLogger('[EOD]') : { log() {}, warn() {} };
+
+    // MV3: observe only — no blocking return, no extraHeaders (both break registration).
     chrome.webRequest.onBeforeSendHeaders.addListener(
         (details) => {
+            if (!details.requestHeaders) return;
+
             for (const header of details.requestHeaders) {
-                if (header.name.toLowerCase() === 'authentication') {
-                    const authValue = header.value;
-                    if (authValue && authValue.startsWith('skypetoken=')) {
-                        const token = authValue.substring(11);
-                        saveTeamsToken(token);
-                    }
+                if (header.name.toLowerCase() !== 'authentication') continue;
+                const authValue = header.value;
+                if (!authValue) continue;
+
+                const match = authValue.match(/skypetoken=([^\s,;]+)/i);
+                if (match?.[1]) {
+                    teamsCaptureLog('webRequest saw skypetoken on', details.url);
+                    captureTeamsToken(match[1], 'webRequest');
                     break;
                 }
             }
-            return { requestHeaders: details.requestHeaders };
         },
-        { urls: ['https://*.teams.live.com/*', 'https://teams.live.com/*'] },
-        ['requestHeaders', 'extraHeaders']
+        { urls: TEAMS_WEB_REQUEST_URLS },
+        ['requestHeaders']
     );
+
+    eodLog.log('Teams token listener registered');
+    teamsCaptureLog('Listener URLs:', TEAMS_WEB_REQUEST_URLS.join(', '));
+    logTeamsStorageState('startup');
+
+    chrome.storage.local.get({ teamsSkypeToken: '' }, (data) => {
+        lastSavedTeamsToken = data.teamsSkypeToken || null;
+    });
 
     chrome.webRequest.onCompleted.addListener(
         async (details) => {
@@ -50,7 +128,55 @@ function initEodModule() {
     setupEodCorsBypass();
 }
 
-function saveTeamsToken(token) {
+function captureTeamsToken(token, source = 'unknown') {
+    if (!token) return;
+    const isNew = token !== lastSavedTeamsToken;
+    teamsCaptureLog(`capture (${source}):`, isNew ? 'new token' : 'same token (refresh UI)', maskToken(token));
+    lastSavedTeamsToken = token;
+    if (isNew) {
+        saveTeamsToken(token, source);
+        return;
+    }
+    chrome.storage.local.set({ teamsTokenCapturedAt: Date.now() }, () => {
+        logTeamsStorageState(`refresh (${source})`);
+    });
+}
+
+function injectTeamsTokenHooks(tabId) {
+    if (!tabId || tabId < 0) return Promise.resolve();
+    teamsCaptureLog('injecting page hooks, tabId', tabId);
+    return chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        files: ['content/teams/token-hook-main.js'],
+        world: 'MAIN'
+    }).then(() => {
+        teamsCaptureLog('page hooks injected, tabId', tabId);
+    }).catch((err) => {
+        teamsCaptureLog('page hook inject failed, tabId', tabId, err?.message || err);
+    });
+}
+
+function setupTeamsTabCapture(tabId) {
+    teamsCaptureLog('setup capture for tabId', tabId);
+    const runInject = () => injectTeamsTokenHooks(tabId);
+
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return;
+        if (tab.status === 'complete') {
+            setTimeout(runInject, 400);
+        }
+    });
+
+    const listener = (id, info) => {
+        if (id !== tabId || info.status !== 'complete') return;
+        setTimeout(runInject, 400);
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+
+    setTimeout(() => chrome.tabs.onUpdated.removeListener(listener), 5 * 60 * 1000);
+}
+
+function saveTeamsToken(token, source = 'unknown') {
     const fromId = extractTeamsFromId(token);
     const storageUpdate = {
         teamsSkypeToken: token,
@@ -58,18 +184,32 @@ function saveTeamsToken(token) {
     };
 
     try {
-        const payloadStr = atob(token.split('.')[1]);
-        const payload = JSON.parse(payloadStr);
-        storageUpdate.teamsTokenExpiry = payload.exp * 1000;
+        const payload = parseTeamsTokenPayload(token);
+        if (payload?.exp) {
+            storageUpdate.teamsTokenExpiry = payload.exp * 1000;
+        }
     } catch (e) {
         // fallback expiry already set
     }
+
+    storageUpdate.teamsTokenCapturedAt = Date.now();
 
     if (fromId) {
         storageUpdate.teamsFromId = fromId;
     }
 
     chrome.storage.local.set(storageUpdate, () => {
+        teamsCaptureLog('saved to chrome.storage.local:', {
+            keysWritten: Object.keys(storageUpdate),
+            teamsSkypeToken: maskToken(token),
+            teamsTokenExpiry: new Date(storageUpdate.teamsTokenExpiry).toISOString(),
+            teamsFromId: storageUpdate.teamsFromId || null,
+            source
+        });
+        logTeamsStorageState(`saved (${source})`);
+        if (typeof createLogger === 'function') {
+            createLogger('[EOD]').log('Teams token saved via', source);
+        }
         syncTeamsCredentialsToApi();
     });
 }
@@ -77,8 +217,10 @@ function saveTeamsToken(token) {
 function parseTeamsTokenPayload(token) {
     if (!token || !token.includes('.')) return null;
     try {
-        const payloadStr = atob(token.split('.')[1]);
-        return JSON.parse(payloadStr);
+        const part = token.split('.')[1];
+        const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        return JSON.parse(atob(padded));
     } catch (e) {
         return null;
     }
@@ -146,6 +288,29 @@ function setupEodCorsBypass() {
 }
 
 function handleEodMessage(message, sendResponse) {
+    if (message.type === 'LOG_TEAMS_STORAGE') {
+        logTeamsStorageState('manual');
+        sendResponse({ success: true, keys: TEAMS_STORAGE_KEYS });
+        return true;
+    }
+
+    if (message.type === 'TEAMS_TOKEN_CAPTURED' && message.token) {
+        captureTeamsToken(message.token, 'content-script');
+        sendResponse({ success: true });
+        return true;
+    }
+
+    if (message.type === 'SETUP_TEAMS_TOKEN_CAPTURE' && message.tabId) {
+        setupTeamsTabCapture(message.tabId);
+        sendResponse({ success: true });
+        return true;
+    }
+
+    if (message.type === 'INJECT_TEAMS_TOKEN_HOOKS' && message.tabId) {
+        injectTeamsTokenHooks(message.tabId).then(() => sendResponse({ success: true }));
+        return true;
+    }
+
     if (message.type === 'SEND_TEAMS_MESSAGE' || message.action === 'sendTeamsMessage') {
         handleSendTeamsMessage(message.message || message.text).then(sendResponse);
         return true;
