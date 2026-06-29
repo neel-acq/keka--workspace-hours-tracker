@@ -326,7 +326,7 @@ async function computeSmartEodSuggestion() {
         return msg(0, 'Good Morning.');
     }
 
-    const todayEntry = findTodayAttendanceEntry(scrapedAttendance.entries);
+    const todayEntry = findTodayAttendanceEntry(scrapedAttendance);
     if (!todayEntry) {
         return msg(0, 'Good Morning.');
     }
@@ -364,8 +364,8 @@ async function computeSmartEodSuggestion() {
     return presets[0];
 }
 
-function findTodayAttendanceEntry(entries) {
-    return findTodayEntry(entries);
+function findTodayAttendanceEntry(scrapedAttendance) {
+    return resolveTodayEntry(scrapedAttendance);
 }
 
 function parseKekaTimeStr(timeStr) {

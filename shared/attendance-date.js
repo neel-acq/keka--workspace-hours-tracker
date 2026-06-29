@@ -73,23 +73,42 @@ function findTodayEntry(entries, today = new Date()) {
   return entries.find((entry) => matchesTodayEntry(entry, today)) || null;
 }
 
+/** Never trust stored todayDateKey — always match against current IST calendar day. */
 function resolveTodayEntry(scrapedAttendance) {
-  if (!scrapedAttendance) return null;
-
-  const todayKey = scrapedAttendance.todayDateKey || getTodayDateKey();
-
-  if (scrapedAttendance.todayEntry) {
-    const entryKey = getAttendanceDateKey(scrapedAttendance.todayEntry.attendanceDate);
-    if (entryKey === todayKey) {
-      return scrapedAttendance.todayEntry;
-    }
-  }
-
+  if (!scrapedAttendance?.entries?.length) return null;
   return findTodayEntry(scrapedAttendance.entries);
 }
 
 function attendanceHasToday(attendanceData) {
-  if (!attendanceData) return false;
-  if (attendanceData.todayEntry) return true;
+  if (!attendanceData?.entries?.length) return false;
+  const todayKey = getTodayDateKey();
+  if (attendanceData.todayEntry) {
+    const entryKey = getAttendanceDateKey(attendanceData.todayEntry.attendanceDate);
+    if (entryKey === todayKey) return true;
+  }
   return !!findTodayEntry(attendanceData.entries);
+}
+
+function isStorageForToday(scrapedAttendance) {
+  if (!scrapedAttendance) return false;
+  const todayKey = getTodayDateKey();
+  if (scrapedAttendance.todayDateKey && scrapedAttendance.todayDateKey !== todayKey) {
+    return false;
+  }
+  const entry = resolveTodayEntry(scrapedAttendance);
+  if (!entry) return false;
+  const entryKey = getAttendanceDateKey(entry.attendanceDate);
+  return entryKey === todayKey;
+}
+
+function buildAttendancePayload(entries) {
+  const todayDateKey = getTodayDateKey();
+  const todayEntry = findTodayEntry(entries);
+  return {
+    scrapedAt: new Date().toISOString(),
+    source: 'API',
+    todayDateKey,
+    todayEntry,
+    entries
+  };
 }

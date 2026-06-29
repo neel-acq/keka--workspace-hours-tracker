@@ -163,32 +163,130 @@ async function apiGetEodSuggestion() {
   return apiFetch("/api/v1/eod/suggestion");
 }
 
-async function collectWorkspaceCookiesForApi() {
-  const origin = "https://workspace.acquaintsoft.com";
-  const urls = [`${origin}/`, `${origin}/admin/`];
-  const cookies = {};
-  for (const url of urls) {
-    const list = await chrome.cookies.getAll({ url });
-    list.forEach((c) => {
-      cookies[c.name] = c.value;
+function getCookieForApi(url, name) {
+  return new Promise((resolve) => {
+    chrome.cookies.get({ url, name }, (cookie) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(cookie || null);
     });
-  }
-  const csrf = cookies.csrf_cookie_name || cookies.csrf_token_name;
-  if (!csrf) return null;
-  return { csrfToken: csrf, cookies };
+  });
 }
 
-async function syncWorkspaceCredentialsToApi() {
-  if (!API_ENABLED) return;
-  const session = await collectWorkspaceCookiesForApi();
-  if (!session) return;
+function getAllCookiesForApi(url) {
+  return new Promise((resolve) => {
+    chrome.cookies.getAll({ url }, (cookies) => {
+      if (chrome.runtime.lastError) {
+        resolve([]);
+        return;
+      }
+      resolve(cookies || []);
+    });
+  });
+}
+
+async function collectWorkspaceCookiesForApi() {
+  const origin = "https://workspace.acquaintsoft.com";
+  const urls = [
+    `${origin}/`,
+    `${origin}/admin/`,
+    `${origin}/admin/staff/timesheets`,
+    `${origin}/admin/tasks`,
+  ];
+
+  const [directCsrf, directSession, ...urlCookieSets] = await Promise.all([
+    getCookieForApi(`${origin}/`, "csrf_cookie_name"),
+    getCookieForApi(`${origin}/`, "sp_session"),
+    ...urls.map((url) => getAllCookiesForApi(url)),
+  ]);
+
+  const seen = new Set();
+  const cookies = {};
+
+  const addCookie = (cookie) => {
+    if (!cookie?.name) return;
+    const key = `${cookie.name}|${cookie.domain}|${cookie.path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    cookies[cookie.name] = cookie.value;
+  };
+
+  [directCsrf, directSession].filter(Boolean).forEach(addCookie);
+  urlCookieSets.flat().forEach(addCookie);
+
+  const csrfToken = cookies.csrf_cookie_name || cookies.csrf_token_name;
+  if (!csrfToken) return null;
+
+  return { csrfToken, cookies };
+}
+
+async function syncWorkspaceCredentialsToApi(sessionOverride) {
+  if (!API_ENABLED) {
+    return { success: false, skipped: true, error: "API disabled" };
+  }
+
+  const session = sessionOverride || (await collectWorkspaceCookiesForApi());
+  if (!session?.csrfToken || !session?.cookies) {
+    console.warn(API_LOG, "workspace sync skipped — no CSRF/session cookies");
+    await chrome.storage.local.set({
+      lastWorkspaceSessionSync: {
+        status: "skipped",
+        error: "No workspace CSRF cookie found. Open Workspace and log in.",
+        at: new Date().toISOString(),
+      },
+    });
+    return { success: false, error: "No workspace session cookies" };
+  }
+
+  const hasSessionCookie = !!(
+    session.cookies.sp_session || session.cookies.ci_session
+  );
+  if (!hasSessionCookie) {
+    console.warn(
+      API_LOG,
+      "workspace sync skipped — missing sp_session/ci_session",
+      Object.keys(session.cookies),
+    );
+    await chrome.storage.local.set({
+      lastWorkspaceSessionSync: {
+        status: "skipped",
+        error: "Missing sp_session. Open Workspace in Chrome and log in.",
+        at: new Date().toISOString(),
+        cookieNames: Object.keys(session.cookies),
+      },
+    });
+    return { success: false, error: "Missing workspace session cookie (sp_session)" };
+  }
+
   const result = await apiSyncWorkspaceSession(
     session.csrfToken,
     session.cookies,
   );
+
   if (result.success) {
-    console.log(API_LOG, "workspace credentials synced");
+    console.log(API_LOG, "workspace session synced to API");
+    await chrome.storage.local.set({
+      lastWorkspaceSessionSync: {
+        status: "success",
+        at: new Date().toISOString(),
+        cookieNames: Object.keys(session.cookies),
+      },
+    });
+  } else {
+    console.warn(API_LOG, "workspace session sync failed", result.error);
+    await chrome.storage.local.set({
+      lastWorkspaceSessionSync: {
+        status: "error",
+        error: result.error,
+        at: new Date().toISOString(),
+        cookieNames: Object.keys(session.cookies),
+      },
+    });
   }
+
+  return result;
 }
 
 async function syncTeamsCredentialsToApi() {

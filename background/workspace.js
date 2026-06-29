@@ -166,9 +166,11 @@ async function getWorkspaceAuth() {
 
     wsLog('auth ok — csrf:', csrf.slice(0, 8) + '...', 'session:', !!session, 'tabOnly:', tabOnly);
 
-    syncWorkspaceCredentialsToApi();
+    if (API_ENABLED && session && Object.keys(cookieMap).length) {
+        await syncWorkspaceCredentialsToApi({ csrfToken: csrf, cookies: cookieMap });
+    }
 
-    return { success: true, csrf, cookieHeader, hasSession: !!session, tabOnly };
+    return { success: true, csrf, cookieHeader, hasSession: !!session, tabOnly, cookies: cookieMap };
 }
 
 function parseHtmlText(html) {
@@ -527,8 +529,9 @@ async function postTimerTracking(auth, taskId, timerId = '', note = '') {
 async function startWorkspaceTimer(taskId, note = '') {
     wsLog('startWorkspaceTimer', taskId);
 
-    if (API_ENABLED) {
-        await syncWorkspaceCredentialsToApi();
+    const auth = await getWorkspaceAuth();
+
+    if (API_ENABLED && auth.success && auth.hasSession && !auth.tabOnly) {
         const apiResult = await apiStartWorkspaceTimer(taskId, note || '');
         if (apiResult.success) {
             const { timesheet, activeTimer, tasksList } = apiResult;
@@ -544,18 +547,18 @@ async function startWorkspaceTimer(taskId, note = '') {
         wsWarn('API start timer failed, falling back local:', apiResult.error);
     }
 
-    let auth = await getWorkspaceAuth();
-    if (!auth.success) {
+    let localAuth = auth;
+    if (!localAuth.success) {
         const tab = await getWorkspaceTab();
         const csrf = await getCsrfFromWorkspaceTab();
         if (tab && csrf) {
-            auth = { success: true, csrf, cookieHeader: '', tabOnly: true };
+            localAuth = { success: true, csrf, cookieHeader: '', tabOnly: true };
         } else {
-            return { success: false, error: auth.error || 'Workspace session not found' };
+            return { success: false, error: localAuth.error || 'Workspace session not found' };
         }
     }
 
-    const { activeTimer } = await fetchTasksData(auth);
+    const { activeTimer } = await fetchTasksData(localAuth);
     if (activeTimer) {
         return {
             success: false,
@@ -564,7 +567,7 @@ async function startWorkspaceTimer(taskId, note = '') {
         };
     }
 
-    const result = await postTimerTracking(auth, taskId, '', note || '');
+    const result = await postTimerTracking(localAuth, taskId, '', note || '');
     if (!result.success) {
         return result;
     }
@@ -660,10 +663,23 @@ async function fetchActiveTimerTask(auth) {
 async function fetchWorkspaceData() {
     wsLog('fetchWorkspaceData start');
 
-    if (API_ENABLED) {
-        await syncWorkspaceCredentialsToApi();
+    let auth = await getWorkspaceAuth();
+
+    if (!auth.success) {
+        const tab = await getWorkspaceTab();
+        const csrf = await getCsrfFromWorkspaceTab();
+        if (tab && csrf) {
+            wsLog('using tab-only auth fallback');
+            auth = { success: true, csrf, cookieHeader: '', tabOnly: true, hasSession: false };
+        } else {
+            wsWarn('auth failed:', auth.error, auth.debug);
+            return { success: false, error: auth.error, debug: auth.debug };
+        }
+    }
+
+    if (API_ENABLED && auth.hasSession && !auth.tabOnly) {
         const apiResult = await apiGetWorkspaceStatus();
-        if (apiResult.success) {
+        if (apiResult.success && apiResult.timesheet) {
             const { timesheet, activeTimer, tasksList } = apiResult;
             await chrome.storage.local.set({
                 workspaceTimesheet: timesheet,
@@ -675,20 +691,6 @@ async function fetchWorkspaceData() {
             return { success: true, timesheet, activeTimer, tasksList };
         }
         wsWarn('API workspace fetch failed, falling back local:', apiResult.error);
-    }
-
-    let auth = await getWorkspaceAuth();
-
-    if (!auth.success) {
-        const tab = await getWorkspaceTab();
-        const csrf = await getCsrfFromWorkspaceTab();
-        if (tab && csrf) {
-            wsLog('using tab-only auth fallback');
-            auth = { success: true, csrf, cookieHeader: '', tabOnly: true };
-        } else {
-            wsWarn('auth failed:', auth.error, auth.debug);
-            return { success: false, error: auth.error, debug: auth.debug };
-        }
     }
 
     try {
@@ -769,13 +771,13 @@ function isWeekdayWorkHours() {
     return minutes >= start && minutes < end;
 }
 
-function findTodayKekaEntry(entries) {
-    return findTodayEntry(entries);
+function findTodayKekaEntry(scrapedAttendance) {
+    return resolveTodayEntry(scrapedAttendance);
 }
 
 function hasKekaInToday(scrapedAttendance) {
     if (!scrapedAttendance?.entries) return false;
-    const todayEntry = findTodayKekaEntry(scrapedAttendance.entries);
+    const todayEntry = findTodayKekaEntry(scrapedAttendance);
     if (!todayEntry) return false;
 
     if (todayEntry.inOutArray?.length) {
@@ -919,6 +921,22 @@ function setupWorkspaceTimerMonitor() {
 function initWorkspaceModule() {
     setupWorkspaceTimerMonitor();
     checkWorkspaceTimerAlerts();
+
+    let workspaceTabSyncTimer = null;
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+        if (changeInfo.status !== 'complete') return;
+        if (!tab.url?.startsWith(WORKSPACE_ORIGIN)) return;
+        clearTimeout(workspaceTabSyncTimer);
+        workspaceTabSyncTimer = setTimeout(() => {
+            getWorkspaceAuth()
+                .then((auth) => {
+                    if (auth.success) {
+                        wsLog('workspace session synced after tab load');
+                    }
+                })
+                .catch((err) => wsWarn('workspace tab sync failed:', err.message));
+        }, 1500);
+    });
 
     chrome.alarms.onAlarm.addListener((alarm) => {
         if (alarm.name === 'workspace_timer_monitor') {

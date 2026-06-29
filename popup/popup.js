@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifications();
     checkTokenAndUpdateUI();
     autoFetchWorkspaceData();
-    loadData();
     startCountdown();
     initNavigation();
     initPunchCardToggle();
@@ -107,10 +106,15 @@ function toggleTheme() {
     chrome.storage.local.set({ darkMode: isDark });
 }
 
-// Load data from storage
+// Load data from storage (only if it is for today's IST date)
 function loadData() {
     chrome.storage.local.get(['scrapedAttendance'], (data) => {
         if (!data.scrapedAttendance) {
+            displayNoData();
+            return;
+        }
+
+        if (!isStorageForToday(data.scrapedAttendance)) {
             displayNoData();
             return;
         }
@@ -721,11 +725,11 @@ function checkTokenAndUpdateUI() {
 
         if (hasToken) {
             kekaBtn.style.display = 'none';
-
-            // Always fetch data when extension opens with valid token
+            displayNoData();
             autoFetchData();
         } else {
             kekaBtn.style.display = 'block';
+            loadData();
         }
     });
 }

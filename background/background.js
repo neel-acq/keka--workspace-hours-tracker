@@ -621,11 +621,78 @@ function startEffectiveHoursMonitoring() {
 // fetchKekaData();
 
 
-// Fetch attendance data from Keka API (works from anywhere)
+// Parse Keka summary API response into extension storage shape
+function parseKekaSummaryToAttendance(kApiData) {
+    const todayDateKey = getTodayDateKey();
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoStr = getTodayDateKey(sevenDaysAgo);
+    const entries = [];
+
+    if (kApiData?.data && Array.isArray(kApiData.data)) {
+        kApiData.data.forEach((item) => {
+            const itemDate = item.attendanceDate ? getAttendanceDateKey(item.attendanceDate) : null;
+            if (itemDate && itemDate >= sevenDaysAgoStr && itemDate <= todayDateKey) {
+                entries.push(parseApiEntry(item));
+            }
+        });
+        entries.sort((a, b) => (b.attendanceDate || '').localeCompare(a.attendanceDate || ''));
+    }
+
+    return buildAttendancePayload(entries);
+}
+
+async function fetchKekaAttendanceDirect(token) {
+    const response = await fetch('https://acquaint.keka.com/k/attendance/api/mytime/attendance/summary', {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        }
+    });
+
+    if (response.status === 401) {
+        chrome.storage.local.remove('kekaAuthToken');
+        tokenCaptured = false;
+        lastCapturedToken = null;
+        return {
+            success: false,
+            error: '🔑 Token expired! Please visit Keka website to refresh your token automatically.'
+        };
+    }
+
+    if (!response.ok) {
+        return {
+            success: false,
+            error: `Keka API request failed with status ${response.status}`
+        };
+    }
+
+    const data = await response.json();
+    const attendanceData = parseKekaSummaryToAttendance(data);
+
+    if (!attendanceData.entries.length || !attendanceData.todayEntry) {
+        return {
+            success: false,
+            error: attendanceData.entries.length === 0
+                ? 'No attendance data found for the last 7 days.'
+                : "Today's attendance was not found. Punch in on Keka and sync again.",
+            data: attendanceData
+        };
+    }
+
+    return {
+        success: true,
+        data: attendanceData,
+        rawItems: data.data || [],
+        source: 'Keka'
+    };
+}
+
+// Fetch attendance — Keka direct is primary; Vercel API is fallback + cloud sync
 async function fetchAttendanceFromAPI() {
 
     try {
-        // Get token from storage (auto-captured or manually set)
         const stored = await chrome.storage.local.get(['kekaAuthToken', 'tokenSource']);
         const token = stored.kekaAuthToken;
 
@@ -636,111 +703,51 @@ async function fetchAttendanceFromAPI() {
             };
         }
 
+        const directResult = await fetchKekaAttendanceDirect(token);
+
+        if (directResult.success) {
+            chrome.storage.local.set({
+                scrapedAttendance: directResult.data,
+                lastScrapeTime: new Date().toISOString()
+            });
+
+            if (API_ENABLED) {
+                syncAttendanceToCloud(token, directResult.rawItems);
+                apiGetAttendanceToday().catch(() => {});
+            }
+
+            return {
+                success: true,
+                data: directResult.data,
+                source: directResult.source
+            };
+        }
+
         if (API_ENABLED) {
             const apiResult = await apiGetAttendanceToday();
             if (apiResult.success && apiResult.attendance && attendanceHasToday(apiResult.attendance)) {
-                const attendanceData = apiResult.attendance;
+                const attendanceData = {
+                    ...apiResult.attendance,
+                    todayDateKey: getTodayDateKey(),
+                    todayEntry: resolveTodayEntry(apiResult.attendance)
+                };
                 chrome.storage.local.set({
                     scrapedAttendance: attendanceData,
                     lastScrapeTime: new Date().toISOString()
                 });
                 syncAttendanceToCloud(token, null);
-                return { success: true, data: attendanceData, source: 'API' };
+                return { success: true, data: attendanceData, source: 'Vercel' };
             }
         }
 
-        const response = await fetch('https://acquaint.keka.com/k/attendance/api/mytime/attendance/summary', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        // Handle 401 Unauthorized - token expired
-        if (response.status === 401) {
-            console.error('❌ Token expired (401 Unauthorized)');
-
-            // Clear the expired token and reset capture flag
-            chrome.storage.local.remove('kekaAuthToken');
-            tokenCaptured = false;
-            lastCapturedToken = null;
-
-            return {
-                success: false,
-                error: '🔑 Token expired! Please visit Keka website to refresh your token automatically.'
-            };
-        }
-
-        if (!response.ok) {
-            console.error('API request failed:', response.status);
-            return {
-                success: false,
-                error: `API request failed with status ${response.status}`
-            };
-        }
-
-        const data = await response.json();
-
-        const todayDateKey = getTodayDateKey();
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const sevenDaysAgoStr = getTodayDateKey(sevenDaysAgo);
-
-        const attendanceData = {
-            scrapedAt: new Date().toISOString(),
-            source: 'API',
-            todayDateKey,
-            todayEntry: null,
-            entries: []
-        };
-
-        // Parse and filter for last 7 days (including today)
-        if (data.data && Array.isArray(data.data)) {
-
-            data.data.forEach(item => {
-                const itemDate = item.attendanceDate ? getAttendanceDateKey(item.attendanceDate) : null;
-
-                // Include entries from last 7 days
-                if (itemDate && itemDate >= sevenDaysAgoStr && itemDate <= todayDateKey) {
-                    const parsedEntry = parseApiEntry(item);
-                    attendanceData.entries.push(parsedEntry);
-                }
-            });
-
-            attendanceData.entries.sort((a, b) =>
-                (b.attendanceDate || '').localeCompare(a.attendanceDate || '')
-            );
-            attendanceData.todayEntry = findTodayEntry(attendanceData.entries);
-        }
-
-        if (attendanceData.entries.length === 0 || !attendanceData.todayEntry) {
-            // Still save the data even if no entries
+        if (directResult.data) {
             chrome.storage.local.set({
-                scrapedAttendance: attendanceData,
+                scrapedAttendance: directResult.data,
                 lastScrapeTime: new Date().toISOString()
             });
-
-            return {
-                success: false,
-                error: attendanceData.entries.length === 0
-                    ? 'No attendance data found for the last 7 days. Check if you have any attendance records.'
-                    : "Today's attendance was not found. Open Keka and try syncing again."
-            };
         }
 
-        // Save to storage
-        chrome.storage.local.set({
-            scrapedAttendance: attendanceData,
-            lastScrapeTime: new Date().toISOString()
-        });
-
-        syncAttendanceToCloud(token, data.data);
-
-        return {
-            success: true,
-            data: attendanceData
-        };
+        return directResult;
 
     } catch (error) {
         console.error('API fetch error:', error);
