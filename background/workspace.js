@@ -770,21 +770,7 @@ function isWeekdayWorkHours() {
 }
 
 function findTodayKekaEntry(entries) {
-    if (!entries || !entries.length) return null;
-
-    const today = new Date();
-    const todayDay = today.getDate();
-    const todayMonth = today.toLocaleString('en-US', { month: 'short' });
-
-    let found = entries.find(entry => {
-        if (!entry.date) return false;
-        const dateMatch = entry.date.match(/(\d+)\s+(\w+)/);
-        if (!dateMatch) return false;
-        return parseInt(dateMatch[1]) === todayDay &&
-            dateMatch[2].toLowerCase() === todayMonth.toLowerCase();
-    });
-
-    return found || entries[0] || null;
+    return findTodayEntry(entries);
 }
 
 function hasKekaInToday(scrapedAttendance) {

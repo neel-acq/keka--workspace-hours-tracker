@@ -713,36 +713,6 @@ function pad(num) {
     return num.toString().padStart(2, '0');
 }
 
-// Find today's entry
-function findTodayEntry(entries) {
-    if (!entries || entries.length === 0) {
-        return null;
-    }
-
-    const today = new Date();
-    const todayDay = today.getDate();
-    const todayMonth = today.toLocaleString('en-US', { month: 'short' });
-
-    let found = entries.find(entry => {
-        if (!entry.date) return false;
-
-        const dateMatch = entry.date.match(/(\d+)\s+(\w+)/);
-        if (dateMatch) {
-            const entryDay = parseInt(dateMatch[1]);
-            const entryMonth = dateMatch[2];
-
-            return entryDay === todayDay && entryMonth.toLowerCase() === todayMonth.toLowerCase();
-        }
-        return false;
-    });
-
-    if (!found && entries.length > 0) {
-        found = entries[0];
-    }
-
-    return found;
-}
-
 // Token & UI Management
 function checkTokenAndUpdateUI() {
     chrome.storage.local.get(['kekaAuthToken'], (data) => {

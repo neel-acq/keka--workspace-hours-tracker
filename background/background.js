@@ -1,5 +1,6 @@
 // Background service worker
 importScripts('../config.js');
+importScripts('../shared/attendance-date.js');
 importScripts('api-client.js');
 importScripts('api-sync.js');
 importScripts('eod.js');
@@ -357,21 +358,7 @@ async function checkEffectiveHoursAndNotify() {
             return;
         }
 
-        // Find today's entry
-        const today = new Date();
-        const todayDay = today.getDate();
-        const todayMonth = today.toLocaleString('en-US', { month: 'short' });
-
-        const todayEntry = data.scrapedAttendance.entries.find(entry => {
-            if (!entry.date) return false;
-            const dateMatch = entry.date.match(/(\d+)\s+(\w+)/);
-            if (dateMatch) {
-                const entryDay = parseInt(dateMatch[1]);
-                const entryMonth = dateMatch[2];
-                return entryDay === todayDay && entryMonth.toLowerCase() === todayMonth.toLowerCase();
-            }
-            return false;
-        });
+        const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
 
         const effectiveHours = calculateEffectiveHours(todayEntry);
 
@@ -415,21 +402,7 @@ async function checkTargetExitAndNotify() {
             return;
         }
 
-        // Find today's entry
-        const today = new Date();
-        const todayDay = today.getDate();
-        const todayMonth = today.toLocaleString('en-US', { month: 'short' });
-
-        const todayEntry = data.scrapedAttendance.entries.find(entry => {
-            if (!entry.date) return false;
-            const dateMatch = entry.date.match(/(\d+)\s+(\w+)/);
-            if (dateMatch) {
-                const entryDay = parseInt(dateMatch[1]);
-                const entryMonth = dateMatch[2];
-                return entryDay === todayDay && entryMonth.toLowerCase() === todayMonth.toLowerCase();
-            }
-            return false;
-        });
+        const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
 
         if (!todayEntry || !todayEntry.inOutArray || todayEntry.inOutArray.length === 0) {
             return;
@@ -752,6 +725,10 @@ async function fetchAttendanceFromAPI() {
                     attendanceData.entries.push(parsedEntry);
                 }
             });
+
+            attendanceData.entries.sort((a, b) =>
+                (b.attendanceDate || '').localeCompare(a.attendanceDate || '')
+            );
         }
 
         if (attendanceData.entries.length === 0) {
@@ -797,7 +774,9 @@ function parseApiEntry(item) {
     const month = date.toLocaleDateString('en-US', { month: 'short' });
     const formattedDate = `${dayName}, ${day} ${month}`;
 
+    const attendanceDate = item.attendanceDate ? item.attendanceDate.split('T')[0] : null;
     const entry = {
+        attendanceDate,
         date: formattedDate,
         checkIn: null,
         checkOut: null,
