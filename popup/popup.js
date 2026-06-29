@@ -115,7 +115,7 @@ function loadData() {
             return;
         }
 
-        const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
+        const todayEntry = resolveTodayEntry(data.scrapedAttendance);
 
         if (todayEntry) {
             if (todayEntry.inOutArray && todayEntry.inOutArray.length > 0) {
@@ -574,7 +574,7 @@ function startCountdown() {
         chrome.storage.local.get(['scrapedAttendance'], (data) => {
             if (!data.scrapedAttendance) return;
 
-            const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
+            const todayEntry = resolveTodayEntry(data.scrapedAttendance);
             if (!todayEntry || !todayEntry.inOutArray) return;
 
             const validSwipes = todayEntry.inOutArray.filter(swipe => swipe.time && swipe.time !== 'MISSING');
@@ -898,7 +898,7 @@ function loadShiftData() {
         }
 
         // Get today's entry (first entry should be most recent)
-        const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
+        const todayEntry = resolveTodayEntry(data.scrapedAttendance);
 
         if (todayEntry) {
             // Display shift information

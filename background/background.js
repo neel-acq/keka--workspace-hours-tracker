@@ -127,18 +127,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Handle scraped attendance data
 function handleScrapedData(data) {
-
-    // Find today's entry
-    const today = new Date();
-    const todayDay = today.getDate();
-    const todayMonth = today.toLocaleString('en-US', { month: 'short' });
-
-    const todayEntry = data.entries.find(entry => {
-        if (!entry.date) return false;
-        const entryDate = entry.date.toLowerCase();
-        return entryDate.includes(todayDay.toString()) &&
-            entryDate.includes(todayMonth.toLowerCase());
-    });
+    const todayEntry = resolveTodayEntry(data);
 
     if (todayEntry && todayEntry.checkIn) {
         // Parse IN time
@@ -358,7 +347,7 @@ async function checkEffectiveHoursAndNotify() {
             return;
         }
 
-        const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
+        const todayEntry = resolveTodayEntry(data.scrapedAttendance);
 
         const effectiveHours = calculateEffectiveHours(todayEntry);
 
@@ -402,7 +391,7 @@ async function checkTargetExitAndNotify() {
             return;
         }
 
-        const todayEntry = findTodayEntry(data.scrapedAttendance.entries);
+        const todayEntry = resolveTodayEntry(data.scrapedAttendance);
 
         if (!todayEntry || !todayEntry.inOutArray || todayEntry.inOutArray.length === 0) {
             return;
@@ -649,16 +638,14 @@ async function fetchAttendanceFromAPI() {
 
         if (API_ENABLED) {
             const apiResult = await apiGetAttendanceToday();
-            if (apiResult.success && apiResult.attendance) {
+            if (apiResult.success && apiResult.attendance && attendanceHasToday(apiResult.attendance)) {
                 const attendanceData = apiResult.attendance;
                 chrome.storage.local.set({
                     scrapedAttendance: attendanceData,
                     lastScrapeTime: new Date().toISOString()
                 });
-                if (attendanceData.entries?.length) {
-                    syncAttendanceToCloud(token, null);
-                    return { success: true, data: attendanceData, source: 'API' };
-                }
+                syncAttendanceToCloud(token, null);
+                return { success: true, data: attendanceData, source: 'API' };
             }
         }
 
@@ -695,21 +682,16 @@ async function fetchAttendanceFromAPI() {
 
         const data = await response.json();
 
-        // Get today's date (local timezone)
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        const todayStr = `${year}-${month}-${day}`;
-
-        // Get date 7 days ago for filtering recent entries
-        const sevenDaysAgo = new Date(today);
+        const todayDateKey = getTodayDateKey();
+        const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const sevenDaysAgoStr = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
+        const sevenDaysAgoStr = getTodayDateKey(sevenDaysAgo);
 
         const attendanceData = {
             scrapedAt: new Date().toISOString(),
             source: 'API',
+            todayDateKey,
+            todayEntry: null,
             entries: []
         };
 
@@ -717,10 +699,10 @@ async function fetchAttendanceFromAPI() {
         if (data.data && Array.isArray(data.data)) {
 
             data.data.forEach(item => {
-                const itemDate = item.attendanceDate ? item.attendanceDate.split('T')[0] : null;
+                const itemDate = item.attendanceDate ? getAttendanceDateKey(item.attendanceDate) : null;
 
                 // Include entries from last 7 days
-                if (itemDate && itemDate >= sevenDaysAgoStr && itemDate <= todayStr) {
+                if (itemDate && itemDate >= sevenDaysAgoStr && itemDate <= todayDateKey) {
                     const parsedEntry = parseApiEntry(item);
                     attendanceData.entries.push(parsedEntry);
                 }
@@ -729,9 +711,10 @@ async function fetchAttendanceFromAPI() {
             attendanceData.entries.sort((a, b) =>
                 (b.attendanceDate || '').localeCompare(a.attendanceDate || '')
             );
+            attendanceData.todayEntry = findTodayEntry(attendanceData.entries);
         }
 
-        if (attendanceData.entries.length === 0) {
+        if (attendanceData.entries.length === 0 || !attendanceData.todayEntry) {
             // Still save the data even if no entries
             chrome.storage.local.set({
                 scrapedAttendance: attendanceData,
@@ -740,7 +723,9 @@ async function fetchAttendanceFromAPI() {
 
             return {
                 success: false,
-                error: `No attendance data found for the last 7 days. Check if you have any attendance records.`
+                error: attendanceData.entries.length === 0
+                    ? 'No attendance data found for the last 7 days. Check if you have any attendance records.'
+                    : "Today's attendance was not found. Open Keka and try syncing again."
             };
         }
 
@@ -768,13 +753,19 @@ async function fetchAttendanceFromAPI() {
 
 // Parse API entry from actual Keka API response
 function parseApiEntry(item) {
-    const date = new Date(item.attendanceDate);
-    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-    const day = date.getDate();
-    const month = date.toLocaleDateString('en-US', { month: 'short' });
-    const formattedDate = `${dayName}, ${day} ${month}`;
+    const attendanceDate = item.attendanceDate ? getAttendanceDateKey(item.attendanceDate) : null;
+    const dateKey = attendanceDate || '';
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const dayName = dateKey
+        ? new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).toLocaleDateString('en-US', {
+            weekday: 'short',
+            timeZone: 'Asia/Kolkata'
+        })
+        : '';
+    const formattedDate = dateKey
+        ? `${dayName}, ${formatAttendanceDisplayDate(dateKey)}`
+        : '';
 
-    const attendanceDate = item.attendanceDate ? item.attendanceDate.split('T')[0] : null;
     const entry = {
         attendanceDate,
         date: formattedDate,
@@ -796,32 +787,19 @@ function parseApiEntry(item) {
     // Format shift times
     if (item.shiftStartTime) {
         const shiftStart = new Date(item.shiftStartTime);
-        entry.shiftStart = shiftStart.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
+        entry.shiftStart = formatTime12hIST(shiftStart);
     }
 
     if (item.shiftEndTime) {
         const shiftEnd = new Date(item.shiftEndTime);
-        entry.shiftEnd = shiftEnd.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
+        entry.shiftEnd = formatTime12hIST(shiftEnd);
     }
 
     // Parse time entries (originalTimeEntries has all swipes)
     if (item.originalTimeEntries && Array.isArray(item.originalTimeEntries)) {
         item.originalTimeEntries.forEach(timeEntry => {
             const swipeTime = new Date(timeEntry.timestamp);
-            const timeStr = swipeTime.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: true
-            });
+            const timeStr = formatTime12hIST(swipeTime);
 
             // punchStatus: 0 = IN, 1 = OUT, 4 = Auto OUT
             let swipeType;

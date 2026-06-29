@@ -54,7 +54,7 @@ async function apiFetch(path, options = {}) {
         status: response.status,
       };
     }
-
+    console.log("data", data);
     return { success: true, ...data };
   } catch (err) {
     console.warn(API_LOG, path, err.message);
