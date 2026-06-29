@@ -288,6 +288,14 @@ async function loadWorkspaceData() {
   renderPresetEditor(data.teamsPrewrittenMessages);
   renderQuickEodButtons(data.teamsPrewrittenMessages);
   await updateSmartSuggestion();
+
+  if (
+    data.teamsSkypeToken &&
+    data.teamsDisplayName &&
+    data.teamsConversationId
+  ) {
+    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" });
+  }
 }
 
 function hookOpenTeamsTabsForCapture() {
@@ -496,6 +504,10 @@ async function saveWorkspaceSettings(e) {
     teamsConversationId: conversationId,
     teamsFromId: fromId,
     teamsDisplayName: displayName,
+  });
+
+  await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" }, () => resolve());
   });
 
   showWorkspaceToast(t("ws_save_success"));

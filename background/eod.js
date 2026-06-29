@@ -288,6 +288,11 @@ function setupEodCorsBypass() {
 }
 
 function handleEodMessage(message, sendResponse) {
+    if (message.type === 'SYNC_TEAMS_CREDENTIALS') {
+        syncTeamsCredentialsToApi().then(sendResponse);
+        return true;
+    }
+
     if (message.type === 'LOG_TEAMS_STORAGE') {
         logTeamsStorageState('manual');
         sendResponse({ success: true, keys: TEAMS_STORAGE_KEYS });
@@ -365,13 +370,20 @@ async function fetchTeamsGroups() {
     }
 }
 
+function isTeamsConfigApiError(error) {
+    if (!error) return false;
+    return /configuration|credentials not configured|not configured/i.test(error);
+}
+
 async function handleSendTeamsMessage(messageText) {
     if (API_ENABLED) {
+        await syncTeamsCredentialsToApi();
         const apiResult = await apiSendTeamsMessage(messageText);
         if (apiResult.success) return { success: true };
-        if (apiResult.error && !apiResult.error.includes('not configured')) {
+        if (apiResult.error && !isTeamsConfigApiError(apiResult.error)) {
             return { success: false, error: apiResult.error };
         }
+        teamsCaptureLog('API send skipped, trying local Teams send:', apiResult.error);
     }
 
     const config = await chrome.storage.local.get({
@@ -391,7 +403,13 @@ async function handleSendTeamsMessage(messageText) {
     }
 
     if (!config.teamsConversationId || !config.teamsDisplayName) {
-        return { success: false, error: 'Missing Teams configuration. Please configure in the Workspace tab.' };
+        const missing = [];
+        if (!config.teamsDisplayName) missing.push('display name');
+        if (!config.teamsConversationId) missing.push('Teams group');
+        return {
+            success: false,
+            error: `Missing Teams configuration (${missing.join(', ')}). Open Workspace tab, pick a group, enter your name, and click Save.`
+        };
     }
 
     if (!teamsFromId) {

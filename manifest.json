@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Keka Hours Tracker",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Track Keka attendance, calculate exit time, and send Workspace EOD updates to Teams",
   "permissions": [
     "storage",

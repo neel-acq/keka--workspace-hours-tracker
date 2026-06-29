@@ -457,7 +457,7 @@ async function flushPendingWorkspaceSessionSync() {
 }
 
 async function syncTeamsCredentialsToApi() {
-  if (!API_ENABLED) return;
+  if (!API_ENABLED) return { success: false, skipped: true };
   const data = await chrome.storage.local.get([
     "teamsSkypeToken",
     "teamsTokenExpiry",
@@ -466,18 +466,28 @@ async function syncTeamsCredentialsToApi() {
     "teamsConversationId",
     "teamsPrewrittenMessages",
   ]);
-  if (!data.teamsSkypeToken) return;
-  const result = await apiSyncTeamsCredentials({
+  if (!data.teamsSkypeToken) return { success: false, error: "no token" };
+
+  const body = {
     skypeToken: data.teamsSkypeToken,
     tokenExpiry: data.teamsTokenExpiry
       ? new Date(data.teamsTokenExpiry).toISOString()
       : null,
-    fromId: data.teamsFromId,
-    displayName: data.teamsDisplayName,
-    conversationId: data.teamsConversationId,
-    prewrittenMessages: data.teamsPrewrittenMessages,
-  });
-  if (result.success) {
-    apiLog.log("teams credentials synced");
+  };
+  if (data.teamsFromId) body.fromId = data.teamsFromId;
+  if (data.teamsDisplayName) body.displayName = data.teamsDisplayName;
+  if (data.teamsConversationId) body.conversationId = data.teamsConversationId;
+  if (data.teamsPrewrittenMessages) {
+    body.prewrittenMessages = data.teamsPrewrittenMessages;
   }
+
+  const result = await apiSyncTeamsCredentials(body);
+  if (result.success) {
+    apiLog.log("teams credentials synced", {
+      hasDisplayName: !!body.displayName,
+      hasConversationId: !!body.conversationId,
+      hasFromId: !!body.fromId,
+    });
+  }
+  return result;
 }
