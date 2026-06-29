@@ -53,6 +53,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                     }, () => {
                         syncTokenToCloud(token, 'Auto-captured from network');
                         flushPendingWorkspaceSessionSync();
+                        syncKekaProfileFromContext();
                     });
 
                     break; // Stop checking headers
@@ -109,6 +110,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse(result);
         });
         return true; // Keep channel open for async response
+    } else if (message.type === 'SYNC_KEKA_PROFILE') {
+        syncKekaProfileFromContext().then(() => sendResponse({ success: true }));
+        return true;
     } else if (message.type === 'UPDATE_TOKEN') {
         // Manual token update from settings
         chrome.storage.local.set({
@@ -117,6 +121,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }, () => {
             syncTokenToCloud(message.token, 'Manual update');
             flushPendingWorkspaceSessionSync();
+            syncKekaProfileFromContext();
             sendResponse({ success: true });
         });
         return true;

@@ -139,10 +139,15 @@ function openWorkspaceTasks() {
 }
 
 async function loadWorkspaceData() {
+  await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "SYNC_KEKA_PROFILE" }, () => resolve());
+  });
+
   const data = await chrome.storage.local.get([
     "teamsConversationId",
     "teamsFromId",
     "teamsDisplayName",
+    "kekaCompanyName",
     "teamsPrewrittenMessages",
     "teamsSkypeToken",
     "teamsTokenExpiry",
@@ -152,11 +157,18 @@ async function loadWorkspaceData() {
   ]);
 
   const displayNameInput = document.getElementById("teamsDisplayName");
+  const companyNameEl = document.getElementById("kekaCompanyName");
   const fromIdInput = document.getElementById("teamsFromId");
   const eodToggle = document.getElementById("eodEnabledToggle");
 
   if (displayNameInput && data.teamsDisplayName) {
     displayNameInput.value = data.teamsDisplayName;
+  }
+  if (companyNameEl && data.kekaCompanyName) {
+    companyNameEl.textContent = data.kekaCompanyName;
+    companyNameEl.style.display = "block";
+  } else if (companyNameEl) {
+    companyNameEl.style.display = "none";
   }
   if (fromIdInput && data.teamsFromId) {
     fromIdInput.value = data.teamsFromId;

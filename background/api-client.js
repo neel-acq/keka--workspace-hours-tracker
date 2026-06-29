@@ -65,10 +65,109 @@ async function apiFetch(path, options = {}) {
 
 async function apiRegister() {
   const manifest = chrome.runtime.getManifest();
-  return apiFetch("/api/v1/auth/register", {
+  const profile = await fetchKekaContextProfileDirect();
+
+  const result = await apiFetch("/api/v1/auth/register", {
     method: "POST",
-    body: { extensionVersion: manifest.version },
+    body: {
+      extensionVersion: manifest.version,
+      display_name: profile?.display_name || undefined,
+      company_name: profile?.company_name || undefined,
+    },
   });
+
+  if (profile) {
+    await applyKekaProfileToStorage(
+      profile.display_name,
+      profile.company_name,
+    );
+  } else if (result.success && result.user) {
+    await applyKekaProfileToStorage(
+      result.user.display_name,
+      result.user.company_name,
+    );
+  }
+  return result;
+}
+
+function decodeKekaJwtPayload(token) {
+  try {
+    const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(base64));
+  } catch {
+    return null;
+  }
+}
+
+function getKekaSubdomainFromToken(token) {
+  const payload = decodeKekaJwtPayload(token);
+  if (!payload) return null;
+  if (payload.subdomain) return payload.subdomain;
+  const iss = payload.iss || "";
+  const match = String(iss).match(/https?:\/\/([^.]+)\.keka\.com/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+async function fetchKekaContextProfileDirect() {
+  const token = await getKekaToken();
+  if (!token) return null;
+
+  const subdomain = getKekaSubdomainFromToken(token) || "acquaint";
+  try {
+    const response = await fetch(
+      `https://${subdomain}.keka.com/k/dashboard/api/context`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const root = data?.data;
+    if (!root) return null;
+    return {
+      display_name: root.employee?.displayName || null,
+      company_name: root.org?.name || root.org?.shortName || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function applyKekaProfileToStorage(displayName, companyName) {
+  const updates = {};
+  if (displayName) {
+    updates.teamsDisplayName = displayName;
+    updates.kekaDisplayName = displayName;
+  }
+  if (companyName) updates.kekaCompanyName = companyName;
+  if (!Object.keys(updates).length) return;
+
+  await chrome.storage.local.set(updates);
+  console.log(API_LOG, "Keka profile:", displayName, "|", companyName);
+
+  const { teamsSkypeToken } = await chrome.storage.local.get("teamsSkypeToken");
+  if (teamsSkypeToken) {
+    await syncTeamsCredentialsToApi();
+  }
+}
+
+async function syncKekaProfileFromContext() {
+  if (!API_ENABLED || !(await getKekaToken())) {
+    const profile = await fetchKekaContextProfileDirect();
+    if (profile) {
+      await applyKekaProfileToStorage(
+        profile.display_name,
+        profile.company_name,
+      );
+    }
+    return;
+  }
+
+  await apiRegister();
 }
 
 async function apiSyncKekaToken(source) {
