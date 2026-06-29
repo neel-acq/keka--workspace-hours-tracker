@@ -20,6 +20,7 @@ async function syncTokenToCloud(token, source) {
                     at: new Date().toISOString()
                 }
             });
+            await flushPendingWorkspaceSessionSync();
         } else {
             console.warn(SYNC_LOG, 'token sync failed', result.error);
         }

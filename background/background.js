@@ -52,6 +52,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                         tokenSource: 'Auto-captured from network'
                     }, () => {
                         syncTokenToCloud(token, 'Auto-captured from network');
+                        flushPendingWorkspaceSessionSync();
                     });
 
                     break; // Stop checking headers
@@ -115,6 +116,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             tokenExtractedAt: new Date().toISOString()
         }, () => {
             syncTokenToCloud(message.token, 'Manual update');
+            flushPendingWorkspaceSessionSync();
             sendResponse({ success: true });
         });
         return true;

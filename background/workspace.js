@@ -531,7 +531,7 @@ async function startWorkspaceTimer(taskId, note = '') {
 
     const auth = await getWorkspaceAuth();
 
-    if (API_ENABLED && auth.success && auth.hasSession && !auth.tabOnly) {
+    if (API_ENABLED && auth.success && auth.hasSession && !auth.tabOnly && (await hasKekaTokenForApi())) {
         const apiResult = await apiStartWorkspaceTimer(taskId, note || '');
         if (apiResult.success) {
             const { timesheet, activeTimer, tasksList } = apiResult;
@@ -677,7 +677,7 @@ async function fetchWorkspaceData() {
         }
     }
 
-    if (API_ENABLED && auth.hasSession && !auth.tabOnly) {
+    if (API_ENABLED && auth.hasSession && !auth.tabOnly && (await hasKekaTokenForApi())) {
         const apiResult = await apiGetWorkspaceStatus();
         if (apiResult.success && apiResult.timesheet) {
             const { timesheet, activeTimer, tasksList } = apiResult;
@@ -690,7 +690,11 @@ async function fetchWorkspaceData() {
             wsLog('fetchWorkspaceData via API success');
             return { success: true, timesheet, activeTimer, tasksList };
         }
-        wsWarn('API workspace fetch failed, falling back local:', apiResult.error);
+        if (apiResult.reason !== 'no_keka_token') {
+            wsWarn('API workspace fetch failed, falling back local:', apiResult.error);
+        }
+    } else if (API_ENABLED && auth.hasSession && !auth.tabOnly) {
+        wsLog('using local workspace — visit Keka once to enable cloud sync');
     }
 
     try {
@@ -946,3 +950,6 @@ function initWorkspaceModule() {
 }
 
 initWorkspaceModule();
+
+// Retry pending workspace cloud sync if Keka token already exists
+flushPendingWorkspaceSessionSync();

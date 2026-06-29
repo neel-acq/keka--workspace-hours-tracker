@@ -9,6 +9,11 @@ async function getKekaToken() {
   return kekaAuthToken || null;
 }
 
+async function hasKekaTokenForApi() {
+  if (!API_ENABLED) return false;
+  return !!(await getKekaToken());
+}
+
 async function apiFetch(path, options = {}) {
   if (!API_ENABLED) {
     return {
@@ -22,6 +27,7 @@ async function apiFetch(path, options = {}) {
     return {
       success: false,
       error: "No Keka token. Visit Keka to capture token.",
+      reason: "no_keka_token",
     };
   }
 
@@ -33,10 +39,6 @@ async function apiFetch(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  console.log("API_BASE_URL", API_BASE_URL);
-  console.log("path", path);
-  console.log("headers", headers);
-  console.log("options.body", options.body);
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method || "GET",
@@ -54,7 +56,6 @@ async function apiFetch(path, options = {}) {
         status: response.status,
       };
     }
-    console.log("data", data);
     return { success: true, ...data };
   } catch (err) {
     console.warn(API_LOG, path, err.message);
@@ -257,7 +258,38 @@ async function syncWorkspaceCredentialsToApi(sessionOverride) {
         cookieNames: Object.keys(session.cookies),
       },
     });
-    return { success: false, error: "Missing workspace session cookie (sp_session)" };
+    return {
+      success: false,
+      error: "Missing workspace session cookie (sp_session)",
+    };
+  }
+
+  const kekaToken = await getKekaToken();
+  if (!kekaToken) {
+    await chrome.storage.local.set({
+      pendingWorkspaceSession: {
+        csrfToken: session.csrfToken,
+        cookies: session.cookies,
+        at: new Date().toISOString(),
+      },
+      lastWorkspaceSessionSync: {
+        status: "pending",
+        error:
+          "Visit Keka once to link your account — workspace session will sync after that.",
+        at: new Date().toISOString(),
+        cookieNames: Object.keys(session.cookies),
+      },
+    });
+    console.log(
+      API_LOG,
+      "workspace session saved locally — open Keka to sync to cloud",
+    );
+    return {
+      success: false,
+      skipped: true,
+      reason: "no_keka_token",
+      pending: true,
+    };
   }
 
   const result = await apiSyncWorkspaceSession(
@@ -267,6 +299,7 @@ async function syncWorkspaceCredentialsToApi(sessionOverride) {
 
   if (result.success) {
     console.log(API_LOG, "workspace session synced to API");
+    await chrome.storage.local.remove("pendingWorkspaceSession");
     await chrome.storage.local.set({
       lastWorkspaceSessionSync: {
         status: "success",
@@ -274,6 +307,8 @@ async function syncWorkspaceCredentialsToApi(sessionOverride) {
         cookieNames: Object.keys(session.cookies),
       },
     });
+  } else if (result.reason === "no_keka_token") {
+    // already queued — no error log
   } else {
     console.warn(API_LOG, "workspace session sync failed", result.error);
     await chrome.storage.local.set({
@@ -287,6 +322,26 @@ async function syncWorkspaceCredentialsToApi(sessionOverride) {
   }
 
   return result;
+}
+
+async function flushPendingWorkspaceSessionSync() {
+  if (!API_ENABLED) return { success: false, skipped: true };
+
+  const token = await getKekaToken();
+  if (!token) return { success: false, reason: "no_keka_token" };
+
+  const { pendingWorkspaceSession } = await chrome.storage.local.get(
+    "pendingWorkspaceSession",
+  );
+  if (!pendingWorkspaceSession?.csrfToken || !pendingWorkspaceSession?.cookies) {
+    return { success: false, skipped: true, reason: "no_pending_session" };
+  }
+
+  console.log(API_LOG, "flushing pending workspace session to API");
+  return syncWorkspaceCredentialsToApi({
+    csrfToken: pendingWorkspaceSession.csrfToken,
+    cookies: pendingWorkspaceSession.cookies,
+  });
 }
 
 async function syncTeamsCredentialsToApi() {
