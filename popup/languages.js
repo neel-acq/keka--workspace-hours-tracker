@@ -22,6 +22,7 @@ const translations = {
     label_effective_hours: "Effective Hours",
     label_break_time: "Break Time",
     label_target_exit: "Target Exit",
+    label_workspace_total: "Workspace Timer (Total logged)",
 
     countdown_title: "Time Remaining",
     countdown_subtitle: "Until your target exit time",
@@ -272,6 +273,7 @@ const translations = {
     label_effective_hours: "અસરકારક કલાકો",
     label_break_time: "બ્રેક ટાઈમ",
     label_target_exit: "લક્ષ્ય બહાર નીકળવાનો સમય",
+    label_workspace_total: "વર્કસ્પેસ ટાઇમર (કુલ લોગ)",
 
     countdown_title: "બાકી સમય",
     countdown_subtitle: "તમારા લક્ષ્ય બહાર નીકળવાના સમય સુધી",
@@ -473,6 +475,7 @@ const translations = {
     label_effective_hours: "प्रभावी घंटे",
     label_break_time: "ब्रेक टाइम",
     label_target_exit: "लक्ष्य निकास समय",
+    label_workspace_total: "वर्कस्पेस टाइमर (कुल लॉग)",
 
     countdown_title: "शेष समय",
     countdown_subtitle: "आपके लक्ष्य निकास समय तक",

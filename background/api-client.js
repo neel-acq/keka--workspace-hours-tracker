@@ -27,17 +27,9 @@ async function getStoredKekaProfile() {
 }
 
 const REGISTER_TTL_MS = 5 * 60 * 1000;
-const PROFILE_SYNC_TTL_MS = 30 * 60 * 1000;
 
 let lastRegisterAt = 0;
 let registerInFlight = null;
-let lastProfileSyncKey = "";
-let lastProfileSyncAt = 0;
-let profileSyncInFlight = null;
-
-function profileSyncKey(profile) {
-  return `${profile?.display_name || ""}|${profile?.company_name || ""}`;
-}
 
 async function apiFetch(path, options = {}) {
   if (!API_ENABLED) {
@@ -71,17 +63,24 @@ async function apiFetch(path, options = {}) {
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
-    const data = await response.json().catch(() => ({}));
+    const raw = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      apiLog.warn(path, response.status, data.error);
+      apiLog.warn(path, response.status, raw.error);
       return {
         success: false,
-        error: data.error || `HTTP ${response.status}`,
+        error: raw.error || `HTTP ${response.status}`,
         status: response.status,
       };
     }
-    return { success: true, ...data };
+
+    try {
+      const data = await unwrapApiResponse(raw);
+      return { success: data.success !== false, ...data };
+    } catch (err) {
+      apiLog.warn(path, "response decrypt failed", err.message);
+      return { success: false, error: err.message };
+    }
   } catch (err) {
     apiLog.warn(path, err.message);
     return { success: false, error: err.message };
@@ -126,70 +125,12 @@ async function apiRegister() {
   return ensureApiSession({ force: true });
 }
 
-async function fetchKekaContextProfileDirect() {
-  const token = await getKekaToken();
-  if (!token) return null;
-
-  const base = kekaTenantBaseUrl(getKekaSubdomainFromToken(token));
-  try {
-    const response = await fetch(`${base}/k/dashboard/api/context`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Referer: `${base}/`,
-      },
-    });
-    if (!response.ok) {
-      apiLog.warn("Keka context fetch failed", response.status);
-      return null;
-    }
-    const data = await response.json();
-    return parseKekaContextPayload(data);
-  } catch (err) {
-    apiLog.warn("Keka context fetch error", err.message);
-    return null;
-  }
-}
-
-async function syncKekaProfileToApiOnce(profile) {
-  if (!API_ENABLED) return { success: false, skipped: true };
-
-  const payload = profile || (await getStoredKekaProfile());
-  if (!payload?.display_name && !payload?.company_name) {
-    return { success: false, skipped: true };
-  }
-
-  const key = profileSyncKey(payload);
-  const now = Date.now();
-  if (key === lastProfileSyncKey && now - lastProfileSyncAt < PROFILE_SYNC_TTL_MS) {
-    return { success: true, cached: true };
-  }
-
-  if (profileSyncInFlight) return profileSyncInFlight;
-
-  profileSyncInFlight = (async () => {
-    try {
-      await ensureApiSession();
-      const result = await apiFetch("/api/v1/user/profile", {
-        method: "POST",
-        body: {
-          display_name: payload.display_name || undefined,
-          company_name: payload.company_name || undefined,
-        },
-      });
-      if (result.success) {
-        lastProfileSyncKey = key;
-        lastProfileSyncAt = Date.now();
-      }
-      return result;
-    } finally {
-      profileSyncInFlight = null;
-    }
-  })();
-
-  return profileSyncInFlight;
+async function apiFetchKekaProfile() {
+  if (!API_ENABLED) return null;
+  await ensureApiSession();
+  const result = await apiFetch("/api/v1/keka/profile");
+  if (!result.success || !result.profile) return null;
+  return result.profile;
 }
 
 async function saveKekaProfileLocally(displayName, companyName) {
@@ -220,27 +161,24 @@ async function saveKekaProfileLocally(displayName, companyName) {
 
 async function applyKekaProfileToStorage(displayName, companyName) {
   if (!displayName && !companyName) return;
-
   await saveKekaProfileLocally(displayName, companyName);
-  await syncKekaProfileToApiOnce({
-    display_name: displayName || null,
-    company_name: companyName || null,
-  });
 }
 
 let profileContextSyncInFlight = null;
 
 async function syncKekaProfileFromContext() {
+  if (!API_ENABLED || !(await getKekaToken())) return;
   if (profileContextSyncInFlight) return profileContextSyncInFlight;
 
   profileContextSyncInFlight = (async () => {
     try {
-      const profile = await fetchKekaContextProfileDirect();
-      if (!profile) return;
-      await applyKekaProfileToStorage(
-        profile.display_name,
-        profile.company_name,
-      );
+      const profile = await apiFetchKekaProfile();
+      if (profile) {
+        await applyKekaProfileToStorage(
+          profile.display_name,
+          profile.company_name,
+        );
+      }
     } finally {
       profileContextSyncInFlight = null;
     }

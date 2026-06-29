@@ -38,8 +38,6 @@
     {
       "matches": ["https://*.keka.com/*"],
       "js": [
-        "shared/keka-profile-parse.js",
-        "content/keka-profile.js",
         "content/modals/tracker-modal.js",
         "content/modals/modal-bridge.js"
       ],

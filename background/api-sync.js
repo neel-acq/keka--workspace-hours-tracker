@@ -29,15 +29,15 @@ async function syncTokenToCloud(token, source) {
     }
 }
 
-async function syncAttendanceToCloud(token, rawApiItems) {
+async function syncAttendanceToCloud(token) {
     if (!API_ENABLED) {
         syncLog.log('API disabled — skip attendance sync');
         return;
     }
-    if (!token || !rawApiItems) return;
+    if (!token) return;
 
     try {
-        const result = await apiSyncAttendance(rawApiItems);
+        const result = await apiSyncAttendance();
         if (result.success) {
             syncLog.log('attendance synced via API', result.daysSynced, 'days');
             await chrome.storage.local.set({

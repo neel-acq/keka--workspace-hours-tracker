@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initPunchCardToggle();
     initSettingsTabs();
+    loadWorkspaceDashboardTotal();
 
     // Event listeners
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
@@ -82,6 +83,10 @@ function switchPage(pageName) {
     if (pageName === 'workspace') {
         initWorkspacePage();
     }
+
+    if (pageName === 'home') {
+        loadWorkspaceDashboardTotal();
+    }
 }
 
 // Toggle theme
@@ -106,6 +111,25 @@ function toggleTheme() {
     const isDark = document.body.classList.toggle('dark-mode');
     setThemeIcon(isDark);
     chrome.storage.local.set({ darkMode: isDark });
+}
+
+// Load workspace total logged hours on Keka dashboard
+function loadWorkspaceDashboardTotal() {
+    chrome.storage.local.get(['workspaceTimesheet', 'workspaceActiveTimer'], (data) => {
+        const totalEl = document.getElementById('workspaceTotalLogged');
+        const labelEl = document.getElementById('workspaceTimerLabel');
+        if (!totalEl) return;
+
+        const total = data.workspaceTimesheet?.totalHours;
+        totalEl.textContent = total || '--:--';
+
+        if (labelEl) {
+            const baseLabel = t('label_workspace_total');
+            labelEl.textContent = data.workspaceActiveTimer
+                ? `⏱ ${baseLabel}`
+                : baseLabel;
+        }
+    });
 }
 
 // Load data from storage (only if it is for today's IST date)
@@ -354,6 +378,8 @@ function displayNoData() {
     document.getElementById('effectiveHours').textContent = '--h --m';
     document.getElementById('breakTime').textContent = '--h --m';
     document.getElementById('exitTime').textContent = '--:--:--';
+    const workspaceTotalEl = document.getElementById('workspaceTotalLogged');
+    if (workspaceTotalEl) workspaceTotalEl.textContent = '--:--';
     document.getElementById('remainingTime').textContent = '--:--:--';
     document.getElementById('statusText').textContent = t('status_no_data');
 
@@ -743,6 +769,7 @@ function autoFetchWorkspaceData() {
         }
 
         chrome.runtime.sendMessage({ type: 'FETCH_WORKSPACE_DATA' }, () => {
+            loadWorkspaceDashboardTotal();
             const workspacePage = document.getElementById('workspacePage');
             if (workspacePage?.classList.contains('active') && typeof fetchAndRenderTimesheet === 'function') {
                 fetchAndRenderTimesheet();
@@ -775,6 +802,7 @@ function autoFetchData() {
 
             if (response && response.success) {
                 loadData();
+                loadWorkspaceDashboardTotal();
 
                 if (statusDiv) {
                     statusDiv.className = 'scrape-status success';
@@ -1220,6 +1248,10 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'local') {
         if (changes.scrapedAttendance) {
             loadData();
+        }
+
+        if (changes.workspaceTimesheet || changes.workspaceActiveTimer) {
+            loadWorkspaceDashboardTotal();
         }
 
         if (changes.kekaAuthToken) {
