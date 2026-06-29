@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Keka Hours Tracker",
+  "version": "1.2.0",
+  "description": "Track Keka attendance, calculate exit time, and send Workspace EOD updates to Teams",
+  "permissions": [
+    "storage",
+    "alarms",
+    "activeTab",
+    "scripting",
+    "webRequest",
+    "tabs",
+    "declarativeNetRequest",
+    "cookies",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://*.keka.com/*",
+    "https://workspace.acquaintsoft.com/*",
+    "https://*.acquaintsoft.com/*",
+    "https://*.teams.live.com/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://workspace.acquaintsoft.com/*"],
+      "js": [
+        "content/modals/tracker-modal.js",
+        "content/modals/eod-modal.js",
+        "content/modals/modal-bridge.js",
+        "content/eod/workspace-detector.js"
+      ],
+      "css": ["content/modals/tracker-modal.css"]
+    },
+    {
+      "matches": ["https://*.keka.com/*"],
+      "js": [
+        "content/modals/tracker-modal.js",
+        "content/modals/modal-bridge.js"
+      ],
+      "css": ["content/modals/tracker-modal.css"]
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
+}

@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keka Hours Tracker</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="languages.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Navigation Bar -->
+    <div class="navbar">
+      <button class="nav-btn active" data-page="home">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z"/></svg></span>
+        <span class="nav-label" data-i18n="nav_dashboard">Keka</span>
+      </button>
+      <button class="nav-btn" data-page="workspace">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></span>
+        <span class="nav-label" data-i18n="nav_workspace">Workspace</span>
+      </button>
+      <button class="nav-btn" data-page="settings">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
+        <span class="nav-label" data-i18n="nav_settings">Settings</span>
+      </button>
+      <button id="themeToggle" class="nav-btn theme-btn">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>
+        <span class="nav-label" data-i18n="nav_theme">Theme</span>
+      </button>
+    </div>
+
+    <!-- HOME PAGE -->
+    <div id="homePage" class="page active">
+      <div class="page-header">
+        <h1 class="page-title" data-i18n="page_title">Today's Attendance</h1>
+        <p class="page-subtitle" data-i18n="page_subtitle">Track your hours and plan your exit</p>
+      </div>
+    
+      <!-- Main Data Display -->
+      <div class="data-section" id="dataSection">
+        <div class="status-card">
+          <div class="status-indicator" id="statusIndicator">
+            <span id="statusText">No data available</span>
+          </div>
+        </div>
+        
+        <div class="time-grid">
+          <div class="time-item">
+            <span class="label" data-i18n="label_first_in">First IN</span>
+            <span class="value" id="inTime">--:--:--</span>
+            <span class="early-entry-badge" id="earlyEntryBadge" style="display: none;">Early Bird</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_last_out">Last OUT</span>
+            <span class="value" id="outTime">--:--:--</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_gross_hours">Gross Hours</span>
+            <span class="value highlight" id="grossHours">--h --m</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_effective_hours">Effective Hours</span>
+            <span class="value highlight" id="effectiveHours">--h --m</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_break_time">Break Time</span>
+            <span class="value" id="breakTime">--h --m</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" id="targetExitLabel" data-i18n="label_target_exit">Target Exit</span>
+            <span class="value highlight" id="exitTime">--:--:--</span>
+          </div>
+          
+          <!-- Don’t remove it. I also don’t want any AI code updates or changes made to the relevant code. -->
+          <!-- <div class="time-item">
+            <span class="label">✨ Sweet Spot (8h)</span>
+            <span class="value" id="effectiveEnd">--:--:--</span>
+          </div>
+           -->
+        </div>
+        
+        <!-- Time Left - Full Width Countdown Banner -->
+        <div class="countdown-banner">
+          <div class="countdown-content">
+            <div class="countdown-inner">
+              <div class="countdown-label-wrapper">
+                <span class="countdown-emoji">⏳</span>
+                <span class="countdown-label" data-i18n="countdown_title">Time Remaining</span>
+              </div>
+              <div class="countdown-timer" id="remainingTime">--:--:--</div>
+              <div class="countdown-subtitle" id="countdownSubtitle" data-i18n="countdown_subtitle">Until your target exit time</div>
+            </div>
+          </div>
+          <!-- <div class="countdown-progress">
+            <div class="countdown-progress-bar" id="progressBar"></div>
+          </div> -->
+        </div>
+
+        <!-- IN/OUT List -->
+        <div class="inout-list-section" id="inoutListSection" style="display: none;">
+          <div class="punch-card-header" id="punchCardHeader">
+            <h3 data-i18n="punch_card_title">📋 Today's Punch Card</h3>
+            <span class="toggle-icon">▼</span>
+          </div>
+          <div class="inout-list">
+            <div class="inout-list-items" id="inoutList">
+              <!-- Will be populated dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Sync Section -->
+      <div class="sync-section">
+        <div class="sync-card">
+          <br>
+          <!-- <div class="sync-icon">🔄</div> -->
+          <h3 class="sync-title" data-i18n="sync_title">Keka Sync</h3>
+          <p class="sync-text" data-i18n="sync_text">Attendance syncs automatically from Keka</p>
+          <button id="openKeka" class="btn btn-keka btn-block" style="display: none;" data-i18n="sync_button">
+            Connect to Keka
+          </button>
+          <div id="scrapeStatus" class="scrape-status"></div>
+        </div>
+      </div>
+      
+      <!-- Footer -->
+      <div class="footer">
+        <p class="made-by"><span data-i18n="footer_made_by">Crafted by</span> <span class="author" data-i18n="footer_author">Neel Patel</span></p>
+      </div>
+    </div>
+
+    <!-- WORKSPACE PAGE -->
+    <div id="workspacePage" class="page workspace-page">
+      <div class="page-header workspace-header">
+        <h1 class="page-title" data-i18n="ws_title">Workspace & EOD</h1>
+        <p class="page-subtitle" data-i18n="ws_subtitle">Teams updates when your timer stops</p>
+      </div>
+
+      <div class="workspace-content">
+        <!-- Today's Timesheet -->
+        <div class="settings-card workspace-card timesheet-card">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="ws_timesheet_title">Today's Timesheet</h3>
+            <span class="card-badge" id="timesheetTimerBadge" data-i18n="ws_timesheet_stopped">Stopped</span>
+          </div>
+          <div class="card-body">
+            <div id="timesheetConnectPrompt" class="timesheet-connect" style="display: none;">
+              <p class="card-text" data-i18n="ws_timesheet_no_session">Open Workspace to connect</p>
+              <p class="connection-sub" data-i18n="ws_timesheet_no_session_hint">Log in to Workspace to sync your timesheet.</p>
+              <button type="button" id="timesheetOpenWorkspaceBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_workspace">Open Workspace</button>
+            </div>
+            <div id="timesheetData">
+              <div class="timesheet-grid">
+                <div class="timesheet-stat">
+                  <span class="timesheet-label" data-i18n="ws_timesheet_total">Total logged</span>
+                  <span class="timesheet-value" id="timesheetTotalHours">--:--</span>
+                </div>
+                <div class="timesheet-stat">
+                  <span class="timesheet-label" data-i18n="ws_timesheet_active_task">Active task</span>
+                  <span class="timesheet-value" id="timesheetActiveTask">--</span>
+                </div>
+                <div class="timesheet-stat">
+                  <span class="timesheet-label" data-i18n="ws_timesheet_last_entry">Last entry</span>
+                  <span class="timesheet-value" id="timesheetLastEntry">--</span>
+                </div>
+                <div class="timesheet-stat">
+                  <span class="timesheet-label" data-i18n="ws_timesheet_elapsed">Session elapsed</span>
+                  <span class="timesheet-value" id="timesheetElapsed">--</span>
+                </div>
+              </div>
+              <div id="workspaceTaskListSection" class="workspace-task-list-section" style="display: none;">
+                <p class="timesheet-label" data-i18n="ws_tasks_title">Your tasks</p>
+                <div id="workspaceTaskList" class="workspace-task-list"></div>
+              </div>
+              <p class="connection-sub" id="timesheetSyncTime"></p>
+              <div class="btn-row">
+                <button type="button" id="refreshTimesheetBtn" class="btn btn-secondary btn-sm" data-i18n="ws_timesheet_refresh">Refresh</button>
+                <button type="button" id="timesheetOpenTasksBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_workspace">Open Workspace</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connection Status -->
+        <div class="settings-card workspace-card">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="ws_connection_title">Connection Status</h3>
+            <span class="card-badge" id="workspaceConfigBadge" data-i18n="ws_not_configured">Not Configured</span>
+          </div>
+          <div class="card-body">
+            <div class="connection-status-row">
+              <span id="teamsTokenDot" class="status-dot red"></span>
+              <div>
+                <p class="connection-label" id="teamsTokenText">Checking token...</p>
+                <p class="connection-sub" id="teamsTokenExpiry"></p>
+              </div>
+            </div>
+            <p class="card-text" id="workspaceConfigText"></p>
+            <div class="btn-row">
+              <button type="button" id="openTeamsBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_teams">Open Teams</button>
+              <button type="button" id="openWorkspaceBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_workspace">Open Workspace</button>
+              <button type="button" id="refreshTeamsTokenBtn" class="btn btn-secondary btn-sm" data-i18n="ws_refresh_token">Refresh Token</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Teams Configuration -->
+        <div class="settings-card workspace-card">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="ws_config_title">Teams Configuration</h3>
+          </div>
+          <div class="card-body">
+            <form id="workspaceSettingsForm">
+              <div class="form-group">
+                <label for="teamsDisplayName" data-i18n="ws_display_name">Display Name</label>
+                <input type="text" id="teamsDisplayName" class="form-input" placeholder="Your name in Teams" required>
+              </div>
+              <p id="teamsFromIdAuto" class="teams-from-id-auto" style="display: none;"></p>
+              <div id="teamsFromIdFetchRow" class="btn-row teams-from-id-fetch" style="display: none;">
+                <button type="button" id="fetchTeamsUserIdBtn" class="btn btn-secondary btn-sm" data-i18n="ws_fetch_user_id">Fetch User ID</button>
+              </div>
+              <div class="form-group" id="teamsFromIdGroup" style="display: none;">
+                <label for="teamsFromId" data-i18n="ws_from_id">Teams User ID</label>
+                <p class="card-text" data-i18n="ws_from_id_manual_hint">Auto-detect failed. Enter your Teams User ID manually.</p>
+                <input type="text" id="teamsFromId" class="form-input" placeholder="8:live:.cid.xxxxx">
+              </div>
+              <div class="form-group">
+                <label for="teamsGroupSelect" data-i18n="ws_group">Teams Group</label>
+                <select id="teamsGroupSelect" class="form-input" required>
+                  <option value="" data-i18n="ws_groups_loading">Loading groups...</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block" data-i18n="ws_save_config">Save Configuration</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Smart Suggestions -->
+        <div class="settings-card workspace-card smart-suggestion-card">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="ws_smart_title">Smart Suggestion</h3>
+          </div>
+          <div class="card-body">
+            <p class="card-text" id="smartSuggestionContext"></p>
+            <div class="suggestion-banner">
+              <span class="suggestion-label" data-i18n="ws_suggested">Suggested message</span>
+              <p class="suggestion-text" id="smartSuggestionText">--</p>
+            </div>
+            <button type="button" id="sendSuggestedBtn" class="btn btn-primary btn-block" data-i18n="ws_send_suggested">Send Suggested Message</button>
+          </div>
+        </div>
+
+        <!-- Quick EOD -->
+        <div class="settings-card workspace-card">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="ws_quick_title">Quick EOD</h3>
+          </div>
+          <div class="card-body">
+            <div id="quickEodList" class="quick-eod-list"></div>
+            <div class="custom-eod-row">
+              <input type="text" id="customEodInput" class="form-input" data-i18n-placeholder="ws_custom_placeholder" placeholder="Custom message...">
+              <button type="button" id="sendCustomEodBtn" class="btn btn-secondary" data-i18n="ws_send">Send</button>
+            </div>
+            <div id="eodSendStatus" class="workspace-status"></div>
+          </div>
+        </div>
+
+        <!-- EOD Preferences -->
+        <div class="settings-card workspace-card">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="ws_prefs_title">EOD Preferences</h3>
+          </div>
+          <div class="card-body">
+            <div class="preference-item">
+              <div class="preference-label">
+                <span class="preference-text" data-i18n="ws_timer_alerts">Workspace timer alerts</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="workspaceAlertsToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <p class="card-text" data-i18n="ws_timer_alerts_desc">Weekday reminders to start/stop timer (10am–9pm; no start alerts 1–2pm)</p>
+            <div class="form-group">
+              <label for="workspaceAlertInterval" data-i18n="ws_alert_interval">Alert check interval</label>
+              <select id="workspaceAlertInterval" class="form-input">
+                <option value="1" data-i18n="ws_alert_interval_1">Every 1 minute</option>
+                <option value="5" data-i18n="ws_alert_interval_5">Every 5 minutes</option>
+                <option value="15" data-i18n="ws_alert_interval_15">Every 15 minutes</option>
+                <option value="30" data-i18n="ws_alert_interval_30">Every 30 minutes</option>
+              </select>
+            </div>
+            <div class="preference-item">
+              <div class="preference-label">
+                <span class="preference-text" data-i18n="ws_auto_prompt">Auto-prompt on timer stop</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="eodEnabledToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <p class="card-text" data-i18n="ws_presets_desc">Edit your preset messages:</p>
+            <div id="presetMessagesList" class="preset-messages-list"></div>
+            <div class="btn-row">
+              <button type="button" id="addPresetBtn" class="btn btn-secondary btn-sm" data-i18n="ws_add_preset">Add Preset</button>
+              <button type="button" id="savePresetsBtn" class="btn btn-primary btn-sm" data-i18n="ws_save_presets">Save Presets</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="workspaceToast" class="workspace-toast"></div>
+    </div>
+
+    <!-- SETTINGS PAGE -->
+    <div id="settingsPage" class="page">
+      <div class="page-header">
+        <h1 class="page-title" data-i18n="settings_title">Settings</h1>
+        <p class="page-subtitle" data-i18n="settings_subtitle">Manage your preferences</p>
+      </div>
+
+      <div class="settings-content">
+        <!-- Settings Tabs -->
+        <div class="settings-tabs">
+          <button class="settings-tab active" data-tab="control-center">
+            <span class="tab-label" data-i18n="tab_control_center">Control Center</span>
+          </button>
+          <button class="settings-tab" data-tab="general">
+            <span class="tab-label" data-i18n="tab_general">General</span>
+          </button>
+        </div>
+
+        <!-- Control Center Tab -->
+        <div id="controlCenterTab" class="settings-tab-content active">
+          <!-- Token Status Card -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title" data-i18n="token_title">Keka Connection</h3>
+              <span class="card-badge" id="tokenBadge" data-i18n="token_checking">Checking...</span>
+            </div>
+            <div class="card-body">
+              <p class="card-text" id="tokenStatusText">Checking your magical connection...</p>
+              <div class="token-details" id="tokenDetails"></div>
+            </div>
+          </div>
+
+          <!-- Notifications Card -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title" data-i18n="notifications_title">Reminders</h3>
+              <button id="addNotification" class="btn-icon-add">➕</button>
+            </div>
+            <div class="card-body">
+              <p class="card-text" data-i18n="notifications_desc">Set up friendly reminders to keep you on track!</p>
+              <div class="notifications-list" id="notificationsList">
+                <!-- Notifications will be added here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- About Card -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title" data-i18n="about_title">About</h3>
+            </div>
+            <div class="card-body">
+              <p class="card-text">
+                <strong data-i18n="about_version">Version:</strong> <span data-i18n="about_version_text">1.2.0</span><br>
+                <strong data-i18n="about_purpose">Purpose:</strong> <span data-i18n="about_purpose_text">Workplace hours and EOD assistant</span><br>
+                <strong data-i18n="about_features">Features:</strong> <span data-i18n="about_features_text">Keka sync, Teams EOD, Smart suggestions, Notifications</span><br>
+                <strong data-i18n="about_status">Status:</strong> <span data-i18n="about_status_text">Active</span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="settings-actions">
+            <button id="testNotification" class="btn btn-secondary btn-block" data-i18n="btn_test_notification">
+              Test Alert
+            </button>
+            <button id="saveSettings" class="btn btn-primary btn-block" data-i18n="btn_save_settings">
+              Save Preferences
+            </button>
+          </div>
+        </div>
+
+        <!-- General Settings Tab -->
+        <div id="generalTab" class="settings-tab-content">
+          <!-- Shift Information Card -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title" data-i18n="shift_title">🕐 Shift Information</h3>
+              <button id="refreshShiftData" class="btn-icon-refresh" title="Refresh Data">🔄</button>
+            </div>
+            <div class="card-body">
+              <div id="shiftDataLoading" class="loading-state">
+                <div class="loading-spinner">⏳</div>
+                <p data-i18n="shift_loading">Loading shift data...</p>
+              </div>
+              <div id="shiftDataContent" class="shift-data-content" style="display: none;">
+                <div class="shift-info-grid">
+                  <div class="shift-info-item">
+                    <span class="shift-label" data-i18n="shift_name">📋 Shift Name</span>
+                    <span class="shift-value" id="shiftName">--</span>
+                  </div>
+                  <div class="shift-info-item">
+                    <span class="shift-label" data-i18n="shift_start">🟢 Shift Start</span>
+                    <span class="shift-value" id="shiftStart">--:--</span>
+                  </div>
+                  <div class="shift-info-item">
+                    <span class="shift-label" data-i18n="shift_end">🔴 Shift End</span>
+                    <span class="shift-value" id="shiftEnd">--:--</span>
+                  </div>
+                  <div class="shift-info-item">
+                    <span class="shift-label" data-i18n="shift_duration">⏱️ Duration</span>
+                    <span class="shift-value" id="shiftDuration">--h --m</span>
+                  </div>
+                </div>
+              </div>
+              <div id="shiftDataError" class="error-state" style="display: none;">
+                <p class="error-text" data-i18n="shift_error">❌ Unable to load shift data</p>
+                <button id="retryShiftData" class="btn btn-secondary btn-sm" data-i18n="shift_retry">Try Again</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- App Preferences Card -->
+          <div class="settings-card">
+            <div class="card-header">
+              <h3 class="card-title" data-i18n="preferences_title">🎨 App Preferences</h3>
+            </div>
+            <div class="card-body">
+              <div class="preference-item">
+                <div class="preference-label">
+                  <span class="preference-icon">🌐</span>
+                  <span class="preference-text" data-i18n="pref_language">Language / ભાષા / भाषा</span>
+                </div>
+                <select id="languageSelect" class="language-select">
+                  <option value="en">🇬🇧 English</option>
+                  <option value="gu">🇮🇳 ગુજરાતી</option>
+                  <option value="hi">🇮🇳 हिंदी</option>
+                </select>
+              </div>
+              <div class="preference-item">
+                <div class="preference-label">
+                <span class="preference-text" data-i18n="pref_funny_text">Funny Text Mode</span>
+              </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="funnyTextToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="preference-item">
+                <div class="preference-label">
+                  <span class="preference-icon">🌙</span>
+                  <span class="preference-text" data-i18n="pref_dark_mode">Dark Mode</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="darkModeToggle">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="preference-item">
+                <div class="preference-label">
+                  <span class="preference-icon">🔔</span>
+                  <span class="preference-text" data-i18n="pref_notifications">Enable Alerts</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="notificationsToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="preference-item">
+                <div class="preference-label">
+                  <span class="preference-icon">🔄</span>
+                  <span class="preference-text" data-i18n="pref_auto_sync">Auto-sync on Open</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="autoSyncToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="workspace.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
