@@ -1,11 +1,16 @@
 // Background service worker
 importScripts('../config.js');
+importScripts('../shared/logger.js');
+importScripts('../shared/keka-subdomain.js');
+importScripts('../shared/keka-profile-parse.js');
 importScripts('../shared/attendance-date.js');
 importScripts('api-client.js');
 importScripts('api-sync.js');
 importScripts('eod.js');
 importScripts('alerts.js');
 importScripts('workspace.js');
+
+const bgLog = createLogger('[Background]');
 
 // Handle extension icon click to open moveable window
 chrome.action.onClicked.addListener(() => {
@@ -54,6 +59,13 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                         syncTokenToCloud(token, 'Auto-captured from network');
                         flushPendingWorkspaceSessionSync();
                         syncKekaProfileFromContext();
+                        chrome.tabs.query({ url: 'https://*.keka.com/*' }, (tabs) => {
+                            for (const tab of tabs) {
+                                if (tab.id) {
+                                    chrome.tabs.sendMessage(tab.id, { type: 'CAPTURE_KEKA_PROFILE' }).catch(() => {});
+                                }
+                            }
+                        });
                     });
 
                     break; // Stop checking headers
@@ -112,6 +124,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // Keep channel open for async response
     } else if (message.type === 'SYNC_KEKA_PROFILE') {
         syncKekaProfileFromContext().then(() => sendResponse({ success: true }));
+        return true;
+    } else if (message.type === 'KEKA_PROFILE_CAPTURED') {
+        applyKekaProfileToStorage(
+            message.profile?.display_name,
+            message.profile?.company_name
+        ).then(() => sendResponse({ success: true }));
         return true;
     } else if (message.type === 'UPDATE_TOKEN') {
         // Manual token update from settings
@@ -757,7 +775,7 @@ async function fetchAttendanceFromAPI() {
         return directResult;
 
     } catch (error) {
-        console.error('API fetch error:', error);
+        bgLog.error('API fetch error:', error);
         return {
             success: false,
             error: error.message

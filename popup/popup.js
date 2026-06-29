@@ -1,5 +1,7 @@
 // Popup script - Multi-page Edition
 
+const popupLog = createLogger('[Popup]');
+
 let countdownInterval = null;
 let notifications = [];
 
@@ -378,7 +380,7 @@ function displayInOutList(inOutArray) {
     }
 
     if (!sectionContainer || !listContainer) {
-        console.error('ERROR: Section or list container not found!');
+        popupLog.error('Section or list container not found');
         return;
     }
 

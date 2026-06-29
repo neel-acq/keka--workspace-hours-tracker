@@ -1,5 +1,7 @@
 // Workspace / EOD tab logic
 
+const wsUiLog = createLogger("[Workspace UI]");
+
 const DEFAULT_EOD_MESSAGES = [
   "Good Morning.",
   "Going For Break.",
@@ -122,7 +124,7 @@ function bindWorkspaceEvents() {
 
 function openWorkspaceTasks() {
   const url = "https://workspace.acquaintsoft.com/admin/staff/timesheets";
-  console.log("[Workspace UI] opening", url);
+  wsUiLog.log("opening", url);
 
   chrome.tabs.create({ url }, (tab) => {
     if (!tab?.id) return;
@@ -130,7 +132,7 @@ function openWorkspaceTasks() {
     const listener = (tabId, info) => {
       if (tabId === tab.id && info.status === "complete") {
         chrome.tabs.onUpdated.removeListener(listener);
-        console.log("[Workspace UI] tab loaded, retrying sync in 2s...");
+        wsUiLog.log("tab loaded, retrying sync in 2s...");
         setTimeout(() => fetchAndRenderTimesheet(true), 2000);
       }
     };
@@ -545,7 +547,7 @@ async function fetchAndRenderTimesheet(showToast = false) {
   const refreshBtn = document.getElementById("refreshTimesheetBtn");
   const syncTimeEl = document.getElementById("timesheetSyncTime");
 
-  console.log("[Workspace UI] fetchAndRenderTimesheet start");
+  wsUiLog.log("fetchAndRenderTimesheet start");
 
   if (refreshBtn) {
     refreshBtn.disabled = true;
@@ -556,7 +558,7 @@ async function fetchAndRenderTimesheet(showToast = false) {
     type: "FETCH_WORKSPACE_DATA",
   });
 
-  console.log("[Workspace UI] FETCH_WORKSPACE_DATA response:", response);
+  wsUiLog.log("FETCH_WORKSPACE_DATA response:", response);
 
   if (refreshBtn) {
     refreshBtn.disabled = false;
@@ -569,7 +571,7 @@ async function fetchAndRenderTimesheet(showToast = false) {
       "workspaceActiveTimer",
       "workspaceTasksList",
     ]);
-    console.log("[Workspace UI] fetch failed, cache:", cached);
+    wsUiLog.log("fetch failed, cache:", cached);
 
     if (cached.workspaceTimesheet) {
       if (connectPrompt) connectPrompt.style.display = "none";

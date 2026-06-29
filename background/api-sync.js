@@ -1,10 +1,10 @@
 // API sync — replaces direct Supabase cloud-sync.js
 
-const SYNC_LOG = '[API-Sync]';
+const syncLog = createLogger('[API-Sync]');
 
 async function syncTokenToCloud(token, source) {
     if (!API_ENABLED) {
-        console.log(SYNC_LOG, 'API disabled — skip token sync');
+        syncLog.log('API disabled — skip token sync');
         return;
     }
     if (!token) return;
@@ -12,7 +12,7 @@ async function syncTokenToCloud(token, source) {
     try {
         const result = await apiSyncKekaToken(source);
         if (result.success) {
-            console.log(SYNC_LOG, 'token synced via API');
+            syncLog.log('token synced via API');
             await chrome.storage.local.set({
                 lastCloudTokenSync: {
                     status: 'success',
@@ -22,16 +22,16 @@ async function syncTokenToCloud(token, source) {
             });
             await flushPendingWorkspaceSessionSync();
         } else {
-            console.warn(SYNC_LOG, 'token sync failed', result.error);
+            syncLog.warn('token sync failed', result.error);
         }
     } catch (err) {
-        console.warn(SYNC_LOG, 'token sync error', err.message);
+        syncLog.warn('token sync error', err.message);
     }
 }
 
 async function syncAttendanceToCloud(token, rawApiItems) {
     if (!API_ENABLED) {
-        console.log(SYNC_LOG, 'API disabled — skip attendance sync');
+        syncLog.log('API disabled — skip attendance sync');
         return;
     }
     if (!token || !rawApiItems) return;
@@ -39,7 +39,7 @@ async function syncAttendanceToCloud(token, rawApiItems) {
     try {
         const result = await apiSyncAttendance(rawApiItems);
         if (result.success) {
-            console.log(SYNC_LOG, 'attendance synced via API', result.daysSynced, 'days');
+            syncLog.log('attendance synced via API', result.daysSynced, 'days');
             await chrome.storage.local.set({
                 lastCloudAttendanceSync: {
                     status: 'success',
@@ -49,9 +49,9 @@ async function syncAttendanceToCloud(token, rawApiItems) {
                 }
             });
         } else {
-            console.warn(SYNC_LOG, 'attendance sync failed', result.error);
+            syncLog.warn('attendance sync failed', result.error);
         }
     } catch (err) {
-        console.warn(SYNC_LOG, 'attendance sync error', err.message);
+        syncLog.warn('attendance sync error', err.message);
     }
 }
