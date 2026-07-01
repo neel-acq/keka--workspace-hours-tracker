@@ -23,6 +23,17 @@ function closeTrackerModal() {
     }
 }
 
+function bindModalEscapeClose(modalEl, closeFn) {
+    const onKeyDown = (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeFn();
+            document.removeEventListener('keydown', onKeyDown);
+        }
+    };
+    document.addEventListener('keydown', onKeyDown);
+}
+
 function showKhtToast(text, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `kht-toast kht-toast-${type}`;
@@ -106,6 +117,8 @@ async function showTrackerModal(config) {
     modal.addEventListener('click', (e) => {
         if (e.target === modal) close();
     });
+
+    bindModalEscapeClose(modal, close);
 
     requestAnimationFrame(() => modal.classList.add('visible'));
 }

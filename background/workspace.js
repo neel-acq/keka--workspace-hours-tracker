@@ -837,10 +837,11 @@ function handleWorkspaceMessage(message, sendResponse) {
     return true;
   }
 
-  if (message.type === "START_WORKSPACE_TIMER") {
-    startWorkspaceTimer(message.taskId, message.note || "").then(sendResponse);
-    return true;
-  }
+  // In-extension timer start disabled — use Workspace timesheet page instead.
+  // if (message.type === "START_WORKSPACE_TIMER") {
+  //   startWorkspaceTimer(message.taskId, message.note || "").then(sendResponse);
+  //   return true;
+  // }
 
   if (message.type === "UPDATE_WORKSPACE_ALARM_INTERVAL") {
     const minutes = message.minutes || 15;
@@ -1019,6 +1020,7 @@ async function checkWorkspaceTimerAlerts() {
     await dispatchTrackerAlert({
       id: "workspace_stop_timer",
       variant: "eod",
+      reason: "timer_stop",
       title: alertT("alert_ws_stop_title", lang),
       label: alertT("eod_modal_label", lang),
       message: `${alertT("alert_ws_stop_message", lang)} (${timesheet.totalHours} logged)`,

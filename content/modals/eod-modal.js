@@ -9,14 +9,34 @@ const DEFAULT_EOD_MESSAGES = [
 ];
 
 const EOD_MODAL_ID = 'kht-eod-modal';
+const TIMESHEET_URL = 'https://workspace.acquaintsoft.com/admin/staff/timesheets';
+let eodModalOpening = false;
+
+function bindModalEscapeClose(modalEl, closeFn) {
+    const onKeyDown = (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeFn();
+            document.removeEventListener('keydown', onKeyDown);
+        }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return onKeyDown;
+}
 
 async function showEodModalContent(config) {
+    config = config || {};
+
     const existing = document.getElementById(EOD_MODAL_ID);
     if (existing) {
         existing.classList.add('visible');
         return;
     }
 
+    if (eodModalOpening) return;
+    eodModalOpening = true;
+
+    try {
     const storage = await chrome.storage.local.get({
         teamsPrewrittenMessages: DEFAULT_EOD_MESSAGES,
         teamsConversationId: '',
@@ -38,6 +58,12 @@ async function showEodModalContent(config) {
         return;
     }
 
+    const existingAfterAwait = document.getElementById(EOD_MODAL_ID);
+    if (existingAfterAwait) {
+        existingAfterAwait.classList.add('visible');
+        return;
+    }
+
     let suggestion = config.suggestedMessage;
     if (!suggestion) {
         const response = await chrome.runtime.sendMessage({ type: 'GET_SMART_EOD_SUGGESTION' });
@@ -56,6 +82,8 @@ async function showEodModalContent(config) {
     const sendCustom = strings.eod_send_custom || 'Send Custom Message';
     const skipLabel = strings.alert_dismiss || 'Skip';
     const suggestedPrefix = strings.eod_suggested_prefix || 'Suggested:';
+    const openTimesheetLabel = strings.eod_open_timesheet || 'Open Timesheet';
+    const showOpenTimesheet = config.reason === 'timer_stop';
 
     let messagesHtml = '';
     messages.forEach((msg) => {
@@ -93,6 +121,7 @@ async function showEodModalContent(config) {
                 </div>
             </div>
             <div class="kht-modal-footer">
+                ${showOpenTimesheet ? `<button type="button" id="kht-open-timesheet-btn" class="kht-btn-secondary">${khtEscapeHtml(openTimesheetLabel)}</button>` : ''}
                 <button type="button" id="kht-skip-btn" class="kht-btn-secondary">${khtEscapeHtml(skipLabel)}</button>
             </div>
         </div>
@@ -107,6 +136,15 @@ async function showEodModalContent(config) {
 
     modal.querySelector('.kht-close-btn').addEventListener('click', closeEod);
     modal.querySelector('#kht-skip-btn').addEventListener('click', closeEod);
+
+    const openTimesheetBtn = modal.querySelector('#kht-open-timesheet-btn');
+    if (openTimesheetBtn) {
+        openTimesheetBtn.addEventListener('click', () => {
+            window.open(TIMESHEET_URL, '_blank');
+        });
+    }
+
+    bindModalEscapeClose(modal, closeEod);
 
     modal.querySelectorAll('.kht-prewritten-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -144,6 +182,9 @@ async function showEodModalContent(config) {
     });
 
     requestAnimationFrame(() => modal.classList.add('visible'));
+    } finally {
+        eodModalOpening = false;
+    }
 }
 
 function sendEodTeamsMessage(message, btnElement, closeFn) {
@@ -166,6 +207,7 @@ function sendEodTeamsMessage(message, btnElement, closeFn) {
 window.showEodModal = async function (suggestedMessage) {
     return showEodModalContent({
         variant: 'eod',
+        reason: 'timer_stop',
         suggestedMessage
     });
 };

@@ -382,16 +382,14 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
     }
 }
 
-// Display no data state
-function displayNoData() {
+// Display no Keka data state (does not clear workspace total)
+function displayNoKekaData() {
     document.getElementById('inTime').textContent = '--:--:--';
     document.getElementById('outTime').textContent = '--:--:--';
     document.getElementById('grossHours').textContent = '--h --m';
     document.getElementById('effectiveHours').textContent = '--h --m';
     document.getElementById('breakTime').textContent = '--h --m';
     document.getElementById('exitTime').textContent = '--:--:--';
-    const workspaceTotalEl = document.getElementById('workspaceTotalLogged');
-    if (workspaceTotalEl) workspaceTotalEl.textContent = '--:--';
     document.getElementById('remainingTime').textContent = '--:--:--';
     document.getElementById('statusText').textContent = t('status_no_data');
 
@@ -400,11 +398,18 @@ function displayNoData() {
     if (statusBanner) statusBanner.className = 'status-banner inactive';
     if (statusIcon) statusIcon.textContent = '💤';
 
-    document.getElementById('inoutListSection').style.display = 'none';
+    const inoutSection = document.getElementById('inoutListSection');
+    if (inoutSection) inoutSection.style.display = 'none';
 
-    // Hide progress bar
     const progressBar = document.getElementById('progressBar');
     if (progressBar) progressBar.style.width = '0%';
+}
+
+// Display no data state (Keka + workspace total)
+function displayNoData() {
+    displayNoKekaData();
+    const workspaceTotalEl = document.getElementById('workspaceTotalLogged');
+    if (workspaceTotalEl) workspaceTotalEl.textContent = '--:--';
 }
 
 // Display IN/OUT list
@@ -759,13 +764,17 @@ function pad(num) {
 
 // Token & UI Management
 function checkTokenAndUpdateUI() {
-    chrome.storage.local.get(['kekaAuthToken'], (data) => {
+    chrome.storage.local.get(['kekaAuthToken', 'scrapedAttendance'], (data) => {
         const hasToken = data.kekaAuthToken && data.kekaAuthToken.trim().length > 0;
         const kekaBtn = document.getElementById('openKeka');
 
         if (hasToken) {
             kekaBtn.style.display = 'none';
-            displayNoData();
+            if (data.scrapedAttendance && isStorageForToday(data.scrapedAttendance)) {
+                loadData();
+            } else {
+                displayNoKekaData();
+            }
             autoFetchData();
         } else {
             kekaBtn.style.display = 'block';
@@ -1261,6 +1270,9 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'local') {
         if (changes.scrapedAttendance) {
             loadData();
+        }
+        if (changes.workspaceTimesheet || changes.workspaceActiveTimer) {
+            loadWorkspaceDashboardTotal();
         }
 
         if (changes.workspaceTimesheet || changes.workspaceActiveTimer) {

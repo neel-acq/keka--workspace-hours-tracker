@@ -168,10 +168,9 @@ async function trySendAlertToTab(tabId, config) {
             const files = config.variant === 'eod'
                 ? [
                     'content/modals/tracker-modal.js',
-                    'content/modals/eod-modal.js',
-                    'content/modals/modal-bridge.js'
+                    'content/modals/eod-modal.js'
                 ]
-                : ['content/modals/tracker-modal.js', 'content/modals/modal-bridge.js'];
+                : ['content/modals/tracker-modal.js'];
             await chrome.scripting.insertCSS({
                 target: { tabId },
                 files: ['content/modals/tracker-modal.css']

@@ -170,12 +170,13 @@ function bindWorkspaceEvents() {
     }
   });
 
-  document.getElementById("workspaceTaskList")?.addEventListener("click", (e) => {
-    const btn = e.target.closest(".task-start-btn");
-    if (btn) {
-      startTaskTimer(btn.dataset.taskId);
-    }
-  });
+  // In-extension task timer start disabled — use Workspace timesheet page instead.
+  // document.getElementById("workspaceTaskList")?.addEventListener("click", (e) => {
+  //   const btn = e.target.closest(".task-start-btn");
+  //   if (btn) {
+  //     startTaskTimer(btn.dataset.taskId);
+  //   }
+  // });
 
   document
     .getElementById("workspaceAlertsToggle")
@@ -677,6 +678,21 @@ async function fetchAndRenderTimesheet(showToast = false) {
 
   wsUiLog.log("fetchAndRenderTimesheet start");
 
+  const cached = await chrome.storage.local.get([
+    "workspaceTimesheet",
+    "workspaceActiveTimer",
+    "workspaceTasksList",
+  ]);
+  if (cached.workspaceTimesheet) {
+    if (connectPrompt) connectPrompt.style.display = "none";
+    if (dataSection) dataSection.style.display = "block";
+    renderTimesheet(
+      cached.workspaceTimesheet,
+      cached.workspaceActiveTimer,
+      cached.workspaceTasksList,
+    );
+  }
+
   if (refreshBtn) {
     refreshBtn.disabled = true;
     refreshBtn.textContent = t("ws_timesheet_syncing");
@@ -738,74 +754,13 @@ async function fetchAndRenderTimesheet(showToast = false) {
   }
 }
 
+/* In-extension task timer start disabled — use Workspace timesheet page instead.
 async function startTaskTimer(taskId) {
-  if (!taskId) return;
-
-  const btn = document.querySelector(`.task-start-btn[data-task-id="${taskId}"]`);
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = t("ws_task_starting");
-  }
-
-  const response = await chrome.runtime.sendMessage({
-    type: "START_WORKSPACE_TIMER",
-    taskId,
-  });
-
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = t("ws_task_start");
-  }
-
-  if (response?.success) {
-    showWorkspaceToast(t("ws_timer_started"));
-    if (response.timesheet) {
-      renderTimesheet(response.timesheet, response.activeTimer, response.tasksList);
-    } else {
-      await fetchAndRenderTimesheet(true);
-    }
-    return;
-  }
-
-  const errMsg =
-    response?.error === "A timer is already running"
-      ? t("ws_timer_already_running")
-      : response?.error || t("ws_timer_start_failed");
-  showWorkspaceToast(errMsg, "error");
+  ...
 }
+*/
 
-function renderTaskList(tasksList) {
-  const section = document.getElementById("workspaceTaskListSection");
-  const container = document.getElementById("workspaceTaskList");
-  if (!section || !container) return;
-
-  const tasks = Array.isArray(tasksList) ? tasksList : [];
-
-  if (!tasks.length) {
-    section.style.display = "block";
-    container.innerHTML = `<p class="card-text">${t("ws_tasks_empty")}</p>`;
-    return;
-  }
-
-  section.style.display = "block";
-  container.innerHTML = tasks
-    .map((task) => {
-      const project = task.projectName
-        ? `<span class="task-project">${escapeHtml(task.projectName)}</span>`
-        : "";
-      return `
-        <div class="workspace-task-row">
-          <div class="workspace-task-info">
-            <span class="workspace-task-name">${escapeHtml(task.taskName)}</span>
-            ${project}
-          </div>
-          <button type="button" class="btn btn-secondary btn-sm task-start-btn"
-            data-task-id="${escapeHtmlAttr(task.taskId)}"
-            data-i18n="ws_task_start">${t("ws_task_start")}</button>
-        </div>`;
-    })
-    .join("");
-}
+/* function renderTaskList(tasksList) { ... } */
 
 function renderTimesheet(timesheet, activeTimer, tasksList) {
   const totalEl = document.getElementById("timesheetTotalHours");
@@ -821,12 +776,7 @@ function renderTimesheet(timesheet, activeTimer, tasksList) {
 
   const isRunning = !!(activeTimer || timesheet?.runningEntry);
   const taskListSection = document.getElementById("workspaceTaskListSection");
-
-  if (isRunning) {
-    if (taskListSection) taskListSection.style.display = "none";
-  } else {
-    renderTaskList(tasksList);
-  }
+  if (taskListSection) taskListSection.style.display = "none";
 
   if (badge) {
     badge.textContent = isRunning

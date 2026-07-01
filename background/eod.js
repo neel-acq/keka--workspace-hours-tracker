@@ -73,6 +73,53 @@ const TEAMS_WEB_REQUEST_URLS = [
 ];
 
 let lastSavedTeamsToken = null;
+const EOD_PROMPT_DEBOUNCE_MS = 4000;
+const lastEodPromptByTab = new Map();
+const pendingTimerRequests = new Map();
+
+function parseTimerTrackingIsStop(details) {
+    const body = details.requestBody;
+    if (!body) return false;
+
+    if (body.formData?.timer_id?.[0]) {
+        return String(body.formData.timer_id[0]).trim().length > 0;
+    }
+
+    if (body.raw?.length) {
+        try {
+            const chunks = body.raw.map((part) => {
+                if (part.bytes) return new TextDecoder().decode(part.bytes);
+                return '';
+            });
+            const params = new URLSearchParams(chunks.join(''));
+            const timerId = params.get('timer_id');
+            return !!(timerId && timerId.trim());
+        } catch (e) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+async function promptEodModal(tabId, suggestedMessage, reason = 'timer_stop') {
+    if (tabId < 0) return;
+
+    const now = Date.now();
+    const last = lastEodPromptByTab.get(tabId) || 0;
+    if (now - last < EOD_PROMPT_DEBOUNCE_MS) return;
+    lastEodPromptByTab.set(tabId, now);
+
+    const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    chrome.storage.local.set({ workspaceStopAlertSentDate: todayKey });
+
+    const suggestion = suggestedMessage || await computeSmartEodSuggestion();
+    chrome.tabs.sendMessage(tabId, {
+        type: 'SHOW_EOD_MODAL',
+        reason,
+        suggestedMessage: suggestion
+    }).catch(() => {});
+}
 
 function initEodModule() {
     const eodLog = typeof createLogger === 'function' ? createLogger('[EOD]') : { log() {}, warn() {} };
@@ -107,25 +154,99 @@ function initEodModule() {
         lastSavedTeamsToken = data.teamsSkypeToken || null;
     });
 
+    chrome.webRequest.onBeforeRequest.addListener(
+        (details) => {
+            if (!details.url.includes('timer_tracking') || details.method !== 'POST') return;
+            pendingTimerRequests.set(details.requestId, {
+                isStop: parseTimerTrackingIsStop(details),
+                tabId: details.tabId,
+                at: Date.now()
+            });
+        },
+        { urls: ['https://workspace.acquaintsoft.com/admin/tasks/timer_tracking*'] },
+        ['requestBody']
+    );
+
     chrome.webRequest.onCompleted.addListener(
         async (details) => {
             if (!details.url.includes('timer_tracking')) return;
 
+            const pending = pendingTimerRequests.get(details.requestId);
+            pendingTimerRequests.delete(details.requestId);
+            if (pending && Date.now() - pending.at > 60000) return;
+            if (!pending?.isStop) return;
+
             const { eodEnabled } = await chrome.storage.local.get({ eodEnabled: true });
             if (eodEnabled === false) return;
 
-            if (details.tabId >= 0) {
-                const suggestion = await computeSmartEodSuggestion();
-                chrome.tabs.sendMessage(details.tabId, {
-                    action: 'showEodModal',
-                    suggestedMessage: suggestion
-                }).catch(() => {});
+            const tabId = details.tabId >= 0 ? details.tabId : pending.tabId;
+            if (tabId >= 0) {
+                await promptEodModal(tabId);
             }
         },
         { urls: ['https://workspace.acquaintsoft.com/admin/tasks/timer_tracking*'] }
     );
 
     setupEodCorsBypass();
+    setupTeamsTokenRefreshAlarm();
+    refreshTeamsTokenIfNeeded();
+}
+
+const TEAMS_OPEN_URL = 'https://teams.live.com/v2/';
+const TEAMS_REFRESH_MARGIN_MS = 15 * 60 * 1000;
+
+function setupTeamsTokenRefreshAlarm() {
+    chrome.alarms.create('teams_token_refresh_check', { periodInMinutes: 45 });
+    chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm.name === 'teams_token_refresh_check') {
+            refreshTeamsTokenIfNeeded();
+        }
+    });
+}
+
+async function refreshTeamsTokenIfNeeded() {
+    const { teamsSkypeToken, teamsTokenExpiry } = await chrome.storage.local.get({
+        teamsSkypeToken: '',
+        teamsTokenExpiry: 0
+    });
+
+    if (!teamsSkypeToken) return;
+
+    const now = Date.now();
+    const needsRefresh = !teamsTokenExpiry || teamsTokenExpiry <= now + TEAMS_REFRESH_MARGIN_MS;
+    if (!needsRefresh) return;
+
+    teamsCaptureLog('token expired or expiring soon — opening Teams for capture');
+
+    const patterns = [
+        'https://teams.live.com/*',
+        'https://*.teams.live.com/*'
+    ];
+    const existingTabs = await chrome.tabs.query({ url: patterns });
+    let tabId;
+    let createdTab = false;
+
+    if (existingTabs.length) {
+        tabId = existingTabs[0].id;
+        await chrome.tabs.update(tabId, { url: TEAMS_OPEN_URL, active: false });
+    } else {
+        const tab = await chrome.tabs.create({ url: TEAMS_OPEN_URL, active: false });
+        tabId = tab.id;
+        createdTab = true;
+    }
+
+    if (tabId) {
+        setupTeamsTabCapture(tabId);
+    }
+
+    if (createdTab && tabId) {
+        setTimeout(async () => {
+            const data = await chrome.storage.local.get({ teamsTokenExpiry: 0 });
+            if (data.teamsTokenExpiry > Date.now()) {
+                chrome.tabs.remove(tabId).catch(() => {});
+            }
+        }, 120000);
+    }
 }
 
 function captureTeamsToken(token, source = 'unknown') {
