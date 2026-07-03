@@ -42,21 +42,17 @@ async function showEodModalContent(config) {
         teamsConversationId: '',
         teamsFromId: '',
         teamsDisplayName: '',
+        teamsSkypeToken: '',
+        teamsTokenExpiry: 0,
         darkMode: false,
         language: 'en'
     });
 
-    if (!storage.teamsConversationId || !storage.teamsFromId) {
-        showTrackerModal({
-            id: 'eod_config_missing',
-            variant: 'info',
-            title: config.title || 'Teams not configured',
-            label: config.label || 'EOD',
-            message: 'Please configure Teams settings in the Workspace tab first.',
-            actions: [{ id: 'dismiss', label: 'Dismiss' }]
-        });
-        return;
-    }
+    const configIncomplete = !storage.teamsConversationId
+        || !storage.teamsDisplayName
+        || (!storage.teamsFromId && !storage.teamsSkypeToken);
+
+    chrome.runtime.sendMessage({ type: 'ENSURE_CREDENTIALS', source: 'eod_modal_open' }).catch(() => {});
 
     const existingAfterAwait = document.getElementById(EOD_MODAL_ID);
     if (existingAfterAwait) {
@@ -84,6 +80,9 @@ async function showEodModalContent(config) {
     const suggestedPrefix = strings.eod_suggested_prefix || 'Suggested:';
     const openTimesheetLabel = strings.eod_open_timesheet || 'Open Timesheet';
     const showOpenTimesheet = config.reason === 'timer_stop';
+    const configBanner = configIncomplete
+        ? `<div class="kht-config-banner">${khtEscapeHtml(strings.eod_config_incomplete_banner || 'Teams is not fully configured. You can still pick a message; sending may fail until you save settings in the extension Workspace tab.')}</div>`
+        : '';
 
     let messagesHtml = '';
     messages.forEach((msg) => {
@@ -112,6 +111,7 @@ async function showEodModalContent(config) {
             </div>
             <div class="kht-modal-body">
                 ${contextMessage}
+                ${configBanner}
                 ${suggestion ? `<div class="kht-suggestion-banner">${khtEscapeHtml(suggestedPrefix)} <strong>${khtEscapeHtml(suggestion)}</strong></div>` : ''}
                 <p class="kht-instruction">${khtEscapeHtml(instruction)}</p>
                 <div id="kht-buttons-list">${messagesHtml}</div>

@@ -5,6 +5,15 @@ const popupLog = createLogger('[Popup]');
 let countdownInterval = null;
 let notifications = [];
 
+function refreshCredentialsAndUI() {
+    chrome.runtime.sendMessage({ type: 'ENSURE_CREDENTIALS', source: 'popup_open' }, () => {
+        if (typeof loadWorkspaceData === 'function') {
+            loadWorkspaceData();
+        }
+        checkTokenAndUpdateUI();
+    });
+}
+
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
     initLanguage();
@@ -17,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPunchCardToggle();
     initSettingsTabs();
     loadWorkspaceDashboardTotal();
+    refreshCredentialsAndUI();
 
     // Event listeners
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
@@ -852,9 +862,15 @@ function openKekaWebsite() {
         statusDiv.textContent = '🔑 Opening Keka... Your magic key will be captured automatically!';
     }
 
-    chrome.tabs.create({
-        url: 'https://acquaint.keka.com/#/me/attendance/logs',
-        active: true
+    const url = 'https://acquaint.keka.com/#/me/attendance/logs';
+    chrome.windows.getAll({ windowTypes: ['normal'] }, (windows) => {
+        if (windows.length > 0) {
+            const targetWindow = windows.find(w => w.focused) || windows[0];
+            chrome.tabs.create({ url, active: true, windowId: targetWindow.id });
+            chrome.windows.update(targetWindow.id, { focused: true });
+        } else {
+            chrome.windows.create({ url, type: 'normal', focused: true });
+        }
     });
 }
 
@@ -1274,13 +1290,13 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
         if (changes.workspaceTimesheet || changes.workspaceActiveTimer) {
             loadWorkspaceDashboardTotal();
         }
-
-        if (changes.workspaceTimesheet || changes.workspaceActiveTimer) {
-            loadWorkspaceDashboardTotal();
-        }
-
         if (changes.kekaAuthToken) {
             checkTokenAndUpdateUI();
+        }
+        if (changes.kekaAuthToken || changes.teamsSkypeToken || changes.teamsTokenExpiry) {
+            if (typeof loadWorkspaceData === 'function') {
+                loadWorkspaceData();
+            }
         }
     }
 });

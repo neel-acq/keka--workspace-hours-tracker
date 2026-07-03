@@ -8,6 +8,7 @@ importScripts('api-sync.js');
 importScripts('eod.js');
 importScripts('alerts.js');
 importScripts('workspace.js');
+importScripts('credentials.js');
 
 const bgLog = createLogger('[Background]');
 
@@ -25,31 +26,22 @@ chrome.action.onClicked.addListener(() => {
 // AUTO TOKEN CAPTURE FROM NETWORK REQUESTS
 // ============================================
 
-let tokenCaptured = false; // Flag to capture only once per session
-let lastCapturedToken = null; // Store last captured token to avoid duplicates
+let lastCapturedToken = null; // Dedupe identical Keka JWT captures
+
+function resetKekaCaptureDedup(token) {
+    lastCapturedToken = token || null;
+}
 
 // Intercept network requests to capture Authorization token
 chrome.webRequest.onBeforeSendHeaders.addListener(
     (details) => {
-        // Quick synchronous check first
-        if (tokenCaptured) {
-            return; // Already captured, skip
-        }
-
         for (let header of details.requestHeaders) {
             if (header.name.toLowerCase() === 'authorization' && header.value.startsWith('Bearer ')) {
                 const token = header.value.replace('Bearer ', '').trim();
 
-                // Only save if it's a valid JWT token and different from last captured
                 if (token && token.startsWith('eyJ') && token !== lastCapturedToken) {
-                    // Set flag immediately to prevent race conditions
-                    tokenCaptured = true;
                     lastCapturedToken = token;
 
-                    // console.log('🔥 Keka Token Auto-Captured!');
-                    // console.log('Token preview:', token.substring(0, 50) + '...');
-
-                    // Save token
                     chrome.storage.local.set({
                         kekaAuthToken: token,
                         tokenExtractedAt: new Date().toISOString(),
@@ -60,7 +52,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                         syncKekaProfileFromContext();
                     });
 
-                    break; // Stop checking headers
+                    break;
                 }
             }
         }
@@ -128,6 +120,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             syncKekaProfileFromContext();
             sendResponse({ success: true });
         });
+        return true;
+    } else if (typeof handleCredentialsMessage === 'function' && handleCredentialsMessage(message, sendResponse)) {
         return true;
     } else if (typeof handleEodMessage === 'function' && handleEodMessage(message, sendResponse)) {
         return true;
@@ -679,8 +673,7 @@ async function fetchAttendanceFromAPI() {
         if (!apiResult.success) {
             if (apiResult.status === 401) {
                 chrome.storage.local.remove('kekaAuthToken');
-                tokenCaptured = false;
-                lastCapturedToken = null;
+                resetKekaCaptureDedup(null);
             }
 
             const cached = await chrome.storage.local.get(['scrapedAttendance']);

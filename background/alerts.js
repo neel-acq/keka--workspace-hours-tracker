@@ -157,30 +157,60 @@ async function findExistingAlertTabs() {
 }
 
 async function trySendAlertToTab(tabId, config) {
+    const eodPayload = config.variant === 'eod'
+        ? {
+            type: 'SHOW_EOD_MODAL',
+            reason: config.reason || 'timer_stop',
+            suggestedMessage: config.suggestedMessage
+        }
+        : null;
+
     try {
-        await chrome.tabs.sendMessage(tabId, {
-            type: 'SHOW_TRACKER_ALERT',
-            config
-        });
+        if (eodPayload) {
+            await chrome.tabs.sendMessage(tabId, eodPayload);
+        } else {
+            await chrome.tabs.sendMessage(tabId, {
+                type: 'SHOW_TRACKER_ALERT',
+                config
+            });
+        }
         return true;
     } catch (e) {
         try {
             const files = config.variant === 'eod'
                 ? [
                     'content/modals/tracker-modal.js',
-                    'content/modals/eod-modal.js'
+                    'content/modals/eod-modal.js',
+                    'content/modals/modal-bridge.js'
                 ]
-                : ['content/modals/tracker-modal.js'];
+                : ['content/modals/tracker-modal.js', 'content/modals/modal-bridge.js'];
             await chrome.scripting.insertCSS({
                 target: { tabId },
                 files: ['content/modals/tracker-modal.css']
             });
             await chrome.scripting.executeScript({ target: { tabId }, files });
-            await chrome.tabs.sendMessage(tabId, { type: 'SHOW_TRACKER_ALERT', config });
+            if (eodPayload) {
+                await chrome.tabs.sendMessage(tabId, eodPayload);
+            } else {
+                await chrome.tabs.sendMessage(tabId, { type: 'SHOW_TRACKER_ALERT', config });
+            }
             return true;
         } catch (e2) {
             return false;
         }
+    }
+}
+
+async function openTabInNormalWindow(url) {
+    const normalWindows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+    if (normalWindows.length > 0) {
+        const targetWindow = normalWindows.find(w => w.focused) || normalWindows[0];
+        const tab = await chrome.tabs.create({ url, active: true, windowId: targetWindow.id });
+        await chrome.windows.update(targetWindow.id, { focused: true }).catch(() => {});
+        return tab;
+    } else {
+        const newWindow = await chrome.windows.create({ url, type: 'normal', focused: true });
+        return newWindow.tabs && newWindow.tabs.length > 0 ? newWindow.tabs[0] : null;
     }
 }
 
@@ -189,9 +219,11 @@ async function openTabForAlert(config) {
         ? WORKSPACE_TASKS_URL
         : KEKA_ATTENDANCE_URL;
 
-    const tab = await chrome.tabs.create({ url, active: true });
-    await waitForTabComplete(tab.id);
-    await new Promise((r) => setTimeout(r, 400));
+    const tab = await openTabInNormalWindow(url);
+    if (tab) {
+        await waitForTabComplete(tab.id);
+        await new Promise((r) => setTimeout(r, 400));
+    }
     return tab;
 }
 
@@ -289,12 +321,12 @@ function handleTrackerAlertAction(message) {
     const { alertId, actionId } = message;
 
     if (actionId === 'open_workspace' || (alertId === 'workspace_start_timer' && actionId === 'primary')) {
-        chrome.tabs.create({ url: WORKSPACE_TASKS_URL });
+        openTabInNormalWindow(WORKSPACE_TASKS_URL);
         return;
     }
 
     if (actionId === 'open_keka') {
-        chrome.tabs.create({ url: KEKA_ATTENDANCE_URL });
+        openTabInNormalWindow(KEKA_ATTENDANCE_URL);
     }
 }
 
@@ -306,12 +338,14 @@ async function handleNotificationClick(notifId) {
     chrome.notifications.clear(notifId);
 
     const url = pending ? getDefaultUrlForAlert(pending) : KEKA_ATTENDANCE_URL;
-    const tab = await chrome.tabs.create({ url, active: true });
-    await waitForTabComplete(tab.id);
-    await new Promise((r) => setTimeout(r, 400));
+    const tab = await openTabInNormalWindow(url);
+    if (tab) {
+        await waitForTabComplete(tab.id);
+        await new Promise((r) => setTimeout(r, 400));
 
-    if (pending?.config) {
-        await trySendAlertToTab(tab.id, pending.config);
+        if (pending?.config) {
+            await trySendAlertToTab(tab.id, pending.config);
+        }
     }
 
     await chrome.storage.local.remove('pendingNotificationAlert');
@@ -330,7 +364,7 @@ async function handleNotificationButton(notifId, buttonIndex) {
     if (action) {
         handleTrackerAlertAction({ alertId: pending.alertId, actionId: action.id });
     } else {
-        chrome.tabs.create({ url: getDefaultUrlForAlert(pending), active: true });
+        openTabInNormalWindow(getDefaultUrlForAlert(pending));
     }
 
     await chrome.storage.local.remove('pendingNotificationAlert');

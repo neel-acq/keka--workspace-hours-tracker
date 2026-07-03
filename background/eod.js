@@ -105,15 +105,33 @@ function parseTimerTrackingIsStop(details) {
 async function promptEodModal(tabId, suggestedMessage, reason = 'timer_stop') {
     if (tabId < 0) return;
 
+    const actionKey = reason === 'timer_stop' ? 'stop' : 'start';
+    const debounceKey = `${tabId}:${actionKey}`;
     const now = Date.now();
-    const last = lastEodPromptByTab.get(tabId) || 0;
+    const last = lastEodPromptByTab.get(debounceKey) || 0;
     if (now - last < EOD_PROMPT_DEBOUNCE_MS) return;
-    lastEodPromptByTab.set(tabId, now);
+    lastEodPromptByTab.set(debounceKey, now);
 
-    const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-    chrome.storage.local.set({ workspaceStopAlertSentDate: todayKey });
+    if (reason === 'timer_stop') {
+        const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+        chrome.storage.local.set({ workspaceStopAlertSentDate: todayKey });
+    }
+
+    ensureRequiredCredentials('eod_modal').catch(() => {});
 
     const suggestion = suggestedMessage || await computeSmartEodSuggestion();
+    const config = {
+        variant: 'eod',
+        reason,
+        suggestedMessage: suggestion,
+        id: reason === 'timer_stop' ? 'timer_stop_eod' : 'timer_start_eod'
+    };
+
+    if (typeof trySendAlertToTab === 'function') {
+        await trySendAlertToTab(tabId, config);
+        return;
+    }
+
     chrome.tabs.sendMessage(tabId, {
         type: 'SHOW_EOD_MODAL',
         reason,
@@ -174,15 +192,20 @@ function initEodModule() {
             const pending = pendingTimerRequests.get(details.requestId);
             pendingTimerRequests.delete(details.requestId);
             if (pending && Date.now() - pending.at > 60000) return;
-            if (!pending?.isStop) return;
 
             const { eodEnabled } = await chrome.storage.local.get({ eodEnabled: true });
             if (eodEnabled === false) return;
 
-            const tabId = details.tabId >= 0 ? details.tabId : pending.tabId;
-            if (tabId >= 0) {
-                await promptEodModal(tabId);
+            const tabId = details.tabId >= 0 ? details.tabId : pending?.tabId;
+            if (tabId < 0) return;
+
+            const isStop = pending ? pending.isStop : true;
+            if (!pending) {
+                eodLog.warn('timer_tracking completed without captured body — assuming stop');
             }
+
+            const reason = isStop ? 'timer_stop' : 'timer_start';
+            await promptEodModal(tabId, null, reason);
         },
         { urls: ['https://workspace.acquaintsoft.com/admin/tasks/timer_tracking*'] }
     );
@@ -192,7 +215,7 @@ function initEodModule() {
     refreshTeamsTokenIfNeeded();
 }
 
-const TEAMS_OPEN_URL = 'https://teams.live.com/v2/';
+const TEAMS_OPEN_URL = 'https://teams.microsoft.com/v2/';
 const TEAMS_REFRESH_MARGIN_MS = 15 * 60 * 1000;
 
 function setupTeamsTokenRefreshAlarm() {
@@ -205,6 +228,14 @@ function setupTeamsTokenRefreshAlarm() {
 }
 
 async function refreshTeamsTokenIfNeeded() {
+    if (typeof ensureRequiredCredentials === 'function') {
+        const status = await getCredentialStatus();
+        if (!status.teams.valid) {
+            await ensureRequiredCredentials('teams_alarm');
+        }
+        return;
+    }
+
     const { teamsSkypeToken, teamsTokenExpiry } = await chrome.storage.local.get({
         teamsSkypeToken: '',
         teamsTokenExpiry: 0
@@ -230,9 +261,17 @@ async function refreshTeamsTokenIfNeeded() {
         tabId = existingTabs[0].id;
         await chrome.tabs.update(tabId, { url: TEAMS_OPEN_URL, active: false });
     } else {
-        const tab = await chrome.tabs.create({ url: TEAMS_OPEN_URL, active: false });
-        tabId = tab.id;
-        createdTab = true;
+        const normalWindows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+        if (normalWindows.length > 0) {
+            const targetWindow = normalWindows.find(w => w.focused) || normalWindows[0];
+            const tab = await chrome.tabs.create({ url: TEAMS_OPEN_URL, active: false, windowId: targetWindow.id });
+            tabId = tab.id;
+            createdTab = true;
+        } else {
+            const newWindow = await chrome.windows.create({ url: TEAMS_OPEN_URL, type: 'normal', focused: false });
+            tabId = newWindow.tabs[0].id;
+            createdTab = true;
+        }
     }
 
     if (tabId) {
@@ -251,16 +290,9 @@ async function refreshTeamsTokenIfNeeded() {
 
 function captureTeamsToken(token, source = 'unknown') {
     if (!token) return;
-    const isNew = token !== lastSavedTeamsToken;
-    teamsCaptureLog(`capture (${source}):`, isNew ? 'new token' : 'same token (refresh UI)', maskToken(token));
+    teamsCaptureLog(`capture (${source}):`, 'captured token', maskToken(token));
     lastSavedTeamsToken = token;
-    if (isNew) {
-        saveTeamsToken(token, source);
-        return;
-    }
-    chrome.storage.local.set({ teamsTokenCapturedAt: Date.now() }, () => {
-        logTeamsStorageState(`refresh (${source})`);
-    });
+    saveTeamsToken(token, source);
 }
 
 function injectTeamsTokenHooks(tabId) {
@@ -307,7 +339,9 @@ function saveTeamsToken(token, source = 'unknown') {
     try {
         const payload = parseTeamsTokenPayload(token);
         if (payload?.exp) {
-            storageUpdate.teamsTokenExpiry = payload.exp * 1000;
+            const expMs = payload.exp * 1000;
+            // Safety net: if system clock is out of sync or token is cached, ensure it's valid for at least 2 hours
+            storageUpdate.teamsTokenExpiry = Math.max(expMs, Date.now() + (2 * 60 * 60 * 1000));
         }
     } catch (e) {
         // fallback expiry already set

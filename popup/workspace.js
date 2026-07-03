@@ -22,14 +22,32 @@ function initWorkspacePage() {
   fetchAndRenderTimesheet();
 }
 
-const TEAMS_OPEN_URL = "https://teams.live.com/v2/";
+const TEAMS_OPEN_URL = "https://teams.microsoft.com/v2/";
 let teamsTokenPollTimer = null;
+
+function openTabInNormalWindow(url, callback) {
+  chrome.windows.getAll({ windowTypes: ['normal'] }, (windows) => {
+    if (windows.length > 0) {
+      const targetWindow = windows.find(w => w.focused) || windows[0];
+      chrome.tabs.create({ url, active: true, windowId: targetWindow.id }, (tab) => {
+        chrome.windows.update(targetWindow.id, { focused: true });
+        if (callback) callback(tab);
+      });
+    } else {
+      chrome.windows.create({ url, type: 'normal', focused: true }, (newWindow) => {
+        if (callback && newWindow.tabs && newWindow.tabs.length > 0) {
+          callback(newWindow.tabs[0]);
+        }
+      });
+    }
+  });
+}
 
 function openTeamsForTokenCapture() {
   if (typeof TEAMS_CAPTURE_LOGGING !== "undefined" && TEAMS_CAPTURE_LOGGING) {
     console.log("[Teams UI] opening", TEAMS_OPEN_URL);
   }
-  chrome.tabs.create({ url: TEAMS_OPEN_URL }, (tab) => {
+  openTabInNormalWindow(TEAMS_OPEN_URL, (tab) => {
     if (!tab?.id) return;
     chrome.runtime.sendMessage({
       type: "SETUP_TEAMS_TOKEN_CAPTURE",
@@ -201,7 +219,7 @@ function openWorkspaceTasks() {
   const url = "https://workspace.acquaintsoft.com/admin/staff/timesheets";
   wsUiLog.log("opening", url);
 
-  chrome.tabs.create({ url }, (tab) => {
+  openTabInNormalWindow(url, (tab) => {
     if (!tab?.id) return;
 
     const listener = (tabId, info) => {
@@ -380,7 +398,6 @@ function updateWorkspaceConfigStatus(data) {
 
   const isConfigured = !!(
     data.teamsConversationId &&
-    data.teamsFromId &&
     data.teamsDisplayName
   );
   if (isConfigured) {
@@ -405,6 +422,15 @@ async function fetchTeamsGroups(savedConversationId) {
   });
 
   if (!response?.success) {
+    if (savedConversationId) {
+      select.innerHTML = "";
+      const option = document.createElement("option");
+      option.value = savedConversationId;
+      option.textContent = t("ws_groups_saved");
+      option.selected = true;
+      select.appendChild(option);
+      return;
+    }
     select.innerHTML = `<option value="">${t("ws_groups_error")}</option>`;
     return;
   }
@@ -429,6 +455,13 @@ async function fetchTeamsGroups(savedConversationId) {
 
   if (!savedFound && response.groups.length > 0) {
     select.options[0].selected = true;
+    if (!savedConversationId) {
+      chrome.storage.local.set({ teamsConversationId: response.groups[0].id }).then(() => {
+        chrome.storage.local.get(["teamsDisplayName", "teamsConversationId"], (data) => {
+          updateWorkspaceConfigStatus(data);
+        });
+      });
+    }
   }
 }
 
@@ -489,23 +522,22 @@ async function saveWorkspaceSettings(e) {
   const conversationId = document.getElementById("teamsGroupSelect")?.value;
   const manualFromId = document.getElementById("teamsFromId")?.value.trim();
   const stored = await chrome.storage.local.get(["teamsFromId"]);
-  const fromId = manualFromId || stored.teamsFromId;
+  const fromId = manualFromId || stored.teamsFromId || "";
 
   if (!displayName || !conversationId) {
     showWorkspaceToast(t("ws_save_error"), "error");
     return;
   }
 
-  if (!fromId) {
-    showWorkspaceToast(t("ws_user_id_required"), "error");
-    return;
+  const payload = {
+    teamsConversationId: conversationId,
+    teamsDisplayName: displayName,
+  };
+  if (fromId) {
+    payload.teamsFromId = fromId;
   }
 
-  await chrome.storage.local.set({
-    teamsConversationId: conversationId,
-    teamsFromId: fromId,
-    teamsDisplayName: displayName,
-  });
+  await chrome.storage.local.set(payload);
 
   await new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" }, () => resolve());
