@@ -123,11 +123,36 @@ function toggleTheme() {
 function loadWorkspaceDashboardTotal() {
     chrome.storage.local.get(['workspaceTimesheet', 'workspaceActiveTimer'], (data) => {
         const totalEl = document.getElementById('workspaceTotalLogged');
+        const remEl = document.getElementById('workspaceRemainingTime');
         const labelEl = document.getElementById('workspaceTimerLabel');
         if (!totalEl) return;
 
         const total = data.workspaceTimesheet?.totalHours;
         totalEl.textContent = total || '--:--';
+
+        if (remEl) {
+            if (total && typeof total === 'string') {
+                const match = total.match(/^(\d{1,2}):(\d{2})/);
+                if (match) {
+                    const hours = parseInt(match[1], 10);
+                    const mins = parseInt(match[2], 10);
+                    const loggedMins = hours * 60 + mins;
+                    const targetMins = 8 * 60; // 8 hours (480 mins)
+                    if (loggedMins >= targetMins) {
+                        remEl.textContent = '0h 0m';
+                    } else {
+                        const remMinsTotal = targetMins - loggedMins;
+                        const remH = Math.floor(remMinsTotal / 60);
+                        const remM = remMinsTotal % 60;
+                        remEl.textContent = `${remH}h ${remM}m`;
+                    }
+                } else {
+                    remEl.textContent = '--h --m';
+                }
+            } else {
+                remEl.textContent = '--h --m';
+            }
+        }
 
         if (labelEl) {
             const baseLabel = t('label_workspace_total');
@@ -416,6 +441,8 @@ function displayNoData() {
     displayNoKekaData();
     const workspaceTotalEl = document.getElementById('workspaceTotalLogged');
     if (workspaceTotalEl) workspaceTotalEl.textContent = '--:--';
+    const workspaceRemEl = document.getElementById('workspaceRemainingTime');
+    if (workspaceRemEl) workspaceRemEl.textContent = '--h --m';
 }
 
 // Display IN/OUT list
@@ -973,6 +1000,7 @@ function loadShiftData() {
             document.getElementById('shiftName').textContent = todayEntry.shift || 'Not Available';
             document.getElementById('shiftStart').textContent = todayEntry.shiftStart || '--:--';
             document.getElementById('shiftEnd').textContent = todayEntry.shiftEnd || '--:--';
+            console.log(`todayEntry : ${JSON.stringify(todayEntry, 2, 2)}`);
 
             // Calculate shift duration
             if (todayEntry.shiftStart && todayEntry.shiftEnd) {
@@ -1013,10 +1041,10 @@ function calculateShiftDuration(startTime, endTime) {
     }
 }
 
-// Parse 12-hour time format
+// Parse 12-hour time format (handles "10:00 AM" and "10:00:00 AM")
 function parseTime12Hour(timeStr) {
     try {
-        const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+        const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
         if (!match) return null;
 
         let hours = parseInt(match[1]);

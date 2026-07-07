@@ -22,7 +22,8 @@ const translations = {
     label_effective_hours: "Effective Hours",
     label_break_time: "Break Time",
     label_target_exit: "Target Exit",
-    label_workspace_total: "Workspace Timer (Total logged)",
+    label_workspace_total: "Workspace Timer",
+    label_workspace_remaining: "Remaining Workspace (8h)",
 
     countdown_title: "Time Remaining",
     countdown_subtitle: "Until your target exit time",
@@ -131,10 +132,8 @@ const translations = {
     tab_control_center_funny: "Control Center",
     tab_general_funny: "General",
     token_title_funny: "Secret Sauce Status",
-    token_status_ok_funny:
-      "You're all set! Your magical connection is active.",
-    token_status_none_funny:
-      "No connection yet. Hit Connect on the Keka tab!",
+    token_status_ok_funny: "You're all set! Your magical connection is active.",
+    token_status_none_funny: "No connection yet. Hit Connect on the Keka tab!",
     notifications_title_funny: "Nudge Me When...",
     notifications_desc_funny: "Set up friendly reminders to keep you on track!",
     about_title_funny: "About This Wizardry",
@@ -223,7 +222,8 @@ const translations = {
     ws_timer_start_failed: "Failed to start timer",
     ws_tasks_empty: "No tasks found",
     ws_timer_alerts: "Workspace timer alerts",
-    ws_timer_alerts_desc: "Weekday reminders to start/stop timer (10am–9pm; no start alerts 1–2pm)",
+    ws_timer_alerts_desc:
+      "Weekday reminders to start/stop timer (10am–9pm; no start alerts 1–2pm)",
     ws_alert_interval: "Alert check interval",
     ws_alert_interval_1: "Every 1 minute",
     ws_alert_interval_5: "Every 5 minutes",
@@ -242,12 +242,15 @@ const translations = {
     alert_test_title: "Test Alert",
     alert_test_message: "Your alerts are working correctly.",
     alert_ws_start_title: "Start Workspace Timer",
-    alert_ws_start_message: "You are punched in on Keka but no workspace timer is running.",
+    alert_ws_start_message:
+      "You are punched in on Keka but no workspace timer is running.",
     alert_ws_stop_title: "Stop Workspace Timer",
-    alert_ws_stop_message: "You have logged 8h 5m+. Consider stopping your timer and sending EOD.",
+    alert_ws_stop_message:
+      "You have logged 8h 5m+. Consider stopping your timer and sending EOD.",
     eod_modal_title: "Send update to Teams",
     eod_open_timesheet: "Open Timesheet",
-    eod_config_incomplete_banner: "Teams is not fully configured. You can still pick a message; sending may fail until you save settings in the extension Workspace tab.",
+    eod_config_incomplete_banner:
+      "Teams is not fully configured. You can still pick a message; sending may fail until you save settings in the extension Workspace tab.",
     eod_modal_label: "EOD",
     eod_modal_instruction: "Select a message to send to your group:",
     eod_custom_toggle: "Write a Custom Message...",
@@ -277,6 +280,7 @@ const translations = {
     label_break_time: "બ્રેક ટાઈમ",
     label_target_exit: "લક્ષ્ય બહાર નીકળવાનો સમય",
     label_workspace_total: "વર્કસ્પેસ ટાઇમર (કુલ લોગ)",
+    label_workspace_remaining: "બાકી વર્કસ્પેસ (8 કલાક)",
 
     countdown_title: "બાકી સમય",
     countdown_subtitle: "તમારા લક્ષ્ય બહાર નીકળવાના સમય સુધી",
@@ -428,7 +432,8 @@ const translations = {
     ws_timer_start_failed: "ટાઈમર શરૂ કરવામાં નિષ્ફળ",
     ws_tasks_empty: "કોઈ ટાસ્ક મળ્યું નહીં",
     ws_timer_alerts: "વર્કસ્પેસ ટાઈમર અલર્ટ",
-    ws_timer_alerts_desc: "ટાઈમર શરૂ/બંધ રિમાઇન્ડર (સોમ–શુક્ર, 10–9; 1–2 વાગ્યે શરૂ અલર્ટ નહીં)",
+    ws_timer_alerts_desc:
+      "ટાઈમર શરૂ/બંધ રિમાઇન્ડર (સોમ–શુક્ર, 10–9; 1–2 વાગ્યે શરૂ અલર્ટ નહીં)",
     ws_alert_interval: "અલર્ટ ચેક અંતરાલ",
     ws_alert_interval_1: "દર 1 મિનિટ",
     ws_alert_interval_5: "દર 5 મિનિટ",
@@ -449,10 +454,12 @@ const translations = {
     alert_ws_start_title: "વર્કસ્પેસ ટાઈમર શરૂ કરો",
     alert_ws_start_message: "તમે કેકામાં IN છો પણ વર્કસ્પેસ ટાઈમર ચાલુ નથી.",
     alert_ws_stop_title: "વર્કસ્પેસ ટાઈમર બંધ કરો",
-    alert_ws_stop_message: "તમે 8 કલાક 5 મિનિટ+ લોગ કર્યું છે. ટાઈમર બંધ કરો અને EOD મોકલો.",
+    alert_ws_stop_message:
+      "તમે 8 કલાક 5 મિનિટ+ લોગ કર્યું છે. ટાઈમર બંધ કરો અને EOD મોકલો.",
     eod_modal_title: "ટીમ્સ પર અપડેટ મોકલો",
     eod_open_timesheet: "ટાઈમશીટ ખોલો",
-    eod_config_incomplete_banner: "Teams સંપૂર્ણ રીતે કોન્ફિગર થયું નથી. તમે હજી પણ સંદેશ પસંદ કરી શકો છો; એક્સ્ટેન્શન Workspace ટેબમાં સેટિંગ્સ સાચવ્યા પછી જ મોકલવું કામ કરશે.",
+    eod_config_incomplete_banner:
+      "Teams સંપૂર્ણ રીતે કોન્ફિગર થયું નથી. તમે હજી પણ સંદેશ પસંદ કરી શકો છો; એક્સ્ટેન્શન Workspace ટેબમાં સેટિંગ્સ સાચવ્યા પછી જ મોકલવું કામ કરશે.",
     eod_modal_label: "EOD",
     eod_modal_instruction: "તમારા ગ્રુપને મોકલવા માટે સંદેશ પસંદ કરો:",
     eod_custom_toggle: "કસ્ટમ સંદેશ લખો...",
@@ -482,6 +489,7 @@ const translations = {
     label_break_time: "ब्रेक टाइम",
     label_target_exit: "लक्ष्य निकास समय",
     label_workspace_total: "वर्कस्पेस टाइमर (कुल लॉग)",
+    label_workspace_remaining: "शेष वर्कस्पेस (8 घंटे)",
 
     countdown_title: "शेष समय",
     countdown_subtitle: "आपके लक्ष्य निकास समय तक",
@@ -623,7 +631,8 @@ const translations = {
     ws_timesheet_refresh: "रिफ्रेश",
     ws_timesheet_syncing: "टाइमशीट सिंक हो रहा है...",
     ws_timesheet_no_session: "कनेक्ट करने के लिए वर्कस्पेस खोलें",
-    ws_timesheet_no_session_hint: "टाइमशीट सिंक के लिए वर्कस्पेस में लॉग इन करें।",
+    ws_timesheet_no_session_hint:
+      "टाइमशीट सिंक के लिए वर्कस्पेस में लॉग इन करें।",
     ws_timesheet_none: "आज कोई एंट्री नहीं",
     ws_timesheet_elapsed: "सत्र समय",
     ws_tasks_title: "आपके कार्य",
@@ -634,7 +643,8 @@ const translations = {
     ws_timer_start_failed: "टाइमर शुरू करने में विफल",
     ws_tasks_empty: "कोई कार्य नहीं मिला",
     ws_timer_alerts: "वर्कस्पेस टाइमर अलर्ट",
-    ws_timer_alerts_desc: "टाइमर शुरू/बंद रिमाइंडर (सोम–शुक्र, 10–9; 1–2 बजे शुरू अलर्ट नहीं)",
+    ws_timer_alerts_desc:
+      "टाइमर शुरू/बंद रिमाइंडर (सोम–शुक्र, 10–9; 1–2 बजे शुरू अलर्ट नहीं)",
     ws_alert_interval: "अलर्ट जांच अंतराल",
     ws_alert_interval_1: "हर 1 मिनट",
     ws_alert_interval_5: "हर 5 मिनट",
@@ -653,12 +663,15 @@ const translations = {
     alert_test_title: "टेस्ट अलर्ट",
     alert_test_message: "आपके अलर्ट सही काम कर रहे हैं।",
     alert_ws_start_title: "वर्कस्पेस टाइमर शुरू करें",
-    alert_ws_start_message: "आप Keka में IN हैं लेकिन वर्कस्पेस टाइमर नहीं चल रहा।",
+    alert_ws_start_message:
+      "आप Keka में IN हैं लेकिन वर्कस्पेस टाइमर नहीं चल रहा।",
     alert_ws_stop_title: "वर्कस्पेस टाइमर बंद करें",
-    alert_ws_stop_message: "आपने 8 घंटे 5 मिनट+ लॉग किया है। टाइमर बंद करें और EOD भेजें।",
+    alert_ws_stop_message:
+      "आपने 8 घंटे 5 मिनट+ लॉग किया है। टाइमर बंद करें और EOD भेजें।",
     eod_modal_title: "Teams पर अपडेट भेजें",
     eod_open_timesheet: "टाइमशीट खोलें",
-    eod_config_incomplete_banner: "Teams पूरी तरह कॉन्फ़िगर नहीं है। आप फिर भी संदेश चुन सकते हैं; एक्सटेंशन Workspace टैब में सेटिंग्स सेव करने के बाद भेजना काम करेगा।",
+    eod_config_incomplete_banner:
+      "Teams पूरी तरह कॉन्फ़िगर नहीं है। आप फिर भी संदेश चुन सकते हैं; एक्सटेंशन Workspace टैब में सेटिंग्स सेव करने के बाद भेजना काम करेगा।",
     eod_modal_label: "EOD",
     eod_modal_instruction: "अपने ग्रुप को भेजने के लिए संदेश चुनें:",
     eod_custom_toggle: "कस्टम संदेश लिखें...",
