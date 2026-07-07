@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('darkModeToggle').addEventListener('change', handleDarkModeToggle);
     document.getElementById('notificationsToggle').addEventListener('change', handleNotificationsToggle);
     document.getElementById('autoSyncToggle').addEventListener('change', handleAutoSyncToggle);
+    document.getElementById('badgeCountdownToggle').addEventListener('change', handleBadgeCountdownToggle);
     document.getElementById('languageSelect').addEventListener('change', handleLanguageChange);
     document.getElementById('funnyTextToggle').addEventListener('change', handleFunnyTextToggle);
 
@@ -567,26 +568,34 @@ function initPunchCardToggle() {
 
 // Setup default notifications
 function setupDefaultNotifications(firstInTime, targetExitTime) {
-    // Note: Effective 8h notification will be triggered when actual effective hours reach 8
-    // We pass a placeholder time here, but the actual monitoring happens in background
-    const effectivePlaceholder = new Date(firstInTime.getTime() + 8 * 60 * 60 * 1000);
+    // Check if default notifications were already set up today to avoid recursive sends
+    const todayKey = new Date().toDateString();
 
-    // Check if entry was before 10 AM for appropriate messaging
-    const tenAM = new Date(firstInTime);
-    tenAM.setHours(10, 0, 0, 0);
-    const isEarlyEntry = firstInTime < tenAM;
+    chrome.storage.local.get(['defaultNotificationsSetupDate', 'defaultNotifications'], (data) => {
+        // If already set up today, don't re-send the setup message to background
+        if (data.defaultNotificationsSetupDate === todayKey) {
+            return;
+        }
 
-    chrome.storage.local.get(['defaultNotifications'], (data) => {
+        // Note: Effective 8h notification will be triggered when actual effective hours reach 8
+        // We pass a placeholder time here, but the actual monitoring happens in background
+        const effectivePlaceholder = new Date(firstInTime.getTime() + 8 * 60 * 60 * 1000);
+
+        // Check if entry was before 10 AM for appropriate messaging
+        const tenAM = new Date(firstInTime);
+        tenAM.setHours(10, 0, 0, 0);
+        const isEarlyEntry = firstInTime < tenAM;
+
         const defaultNotifs = data.defaultNotifications || {
             effective: { message: '🎉 8 Hours Complete (Effective)! Great work!' },
             gross: { message: isEarlyEntry ? '🎯 7 PM Freedom Time! You can leave now! 🚀' : '🎯 Target Exit Time! You can leave now.' }
         };
 
-        // Reset the notification sent flags for today
-        chrome.storage.local.set({
-            effective8hNotificationSent: false,
-            targetExitNotificationSent: false
-        });
+        // Mark as set up for today — prevents duplicate setup on subsequent popup opens
+        chrome.storage.local.set({ defaultNotificationsSetupDate: todayKey });
+
+        // NOTE: Do NOT reset effective8hNotificationSent / targetExitNotificationSent here.
+        // That is handled once per day by resetDailyNotificationFlags() in background.js.
 
         chrome.runtime.sendMessage({
             type: 'SETUP_DEFAULT_NOTIFICATIONS',
@@ -1064,10 +1073,11 @@ function parseTime12Hour(timeStr) {
 
 // Load Preferences
 function loadPreferences() {
-    chrome.storage.local.get(['darkMode', 'notificationsEnabled', 'autoSyncEnabled', 'language', 'funnyTextMode'], (data) => {
+    chrome.storage.local.get(['darkMode', 'notificationsEnabled', 'autoSyncEnabled', 'badgeCountdownEnabled', 'language', 'funnyTextMode'], (data) => {
         document.getElementById('darkModeToggle').checked = data.darkMode || false;
         document.getElementById('notificationsToggle').checked = data.notificationsEnabled !== false;
         document.getElementById('autoSyncToggle').checked = data.autoSyncEnabled !== false;
+        document.getElementById('badgeCountdownToggle').checked = data.badgeCountdownEnabled !== false;
         document.getElementById('languageSelect').value = data.language || 'en';
         const funnyToggle = document.getElementById('funnyTextToggle');
         if (funnyToggle) {
@@ -1098,6 +1108,12 @@ function handleNotificationsToggle(e) {
 function handleAutoSyncToggle(e) {
     const enabled = e.target.checked;
     chrome.storage.local.set({ autoSyncEnabled: enabled });
+}
+
+// Handle Badge Countdown Toggle
+function handleBadgeCountdownToggle(e) {
+    const enabled = e.target.checked;
+    chrome.runtime.sendMessage({ type: 'TOGGLE_BADGE_COUNTDOWN', enabled: enabled });
 }
 
 // Handle Language Change

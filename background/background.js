@@ -12,6 +12,11 @@ importScripts('credentials.js');
 
 const bgLog = createLogger('[Background]');
 
+// Badge countdown color constants
+const BADGE_COLOR_ACTIVE = '#E91E63';    // Pink/red — time remaining
+const BADGE_COLOR_URGENT = '#FF5722';    // Orange — under 30 min
+const BADGE_COLOR_DONE = '#4CAF50';      // Green — freedom!
+
 // Handle extension icon click to open moveable window
 chrome.action.onClicked.addListener(() => {
     chrome.windows.create({
@@ -100,6 +105,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.type === 'SETUP_DEFAULT_NOTIFICATIONS') {
         setupDefaultNotifications(message.effectiveTime, message.grossTime, message.effectiveMessage, message.grossMessage, message.isEarlyEntry);
         sendResponse({ success: true });
+        return true;
+    } else if (message.type === 'TOGGLE_BADGE_COUNTDOWN') {
+        const enabled = message.enabled !== false; // Default to true
+        chrome.storage.local.set({ badgeCountdownEnabled: enabled }, () => {
+            if (enabled) {
+                startBadgeCountdown();
+            } else {
+                clearBadgeCountdown();
+            }
+            sendResponse({ success: true });
+        });
         return true;
     } else if (message.type === 'FETCH_ATTENDANCE_API') {
         fetchAttendanceFromAPI().then(result => {
@@ -273,6 +289,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
                 actions: [{ id: 'dismiss', label: alertT('alert_dismiss', lang) }]
             });
         });
+    } else if (alarm.name === 'badge_countdown') {
+        // Update extension icon badge with remaining time
+        updateBadgeCountdown();
     } else if (alarm.name === 'check_effective_hours') {
         // Check if effective hours reached 8
         checkEffectiveHoursAndNotify();
@@ -457,11 +476,13 @@ async function checkTargetExitAndNotify() {
 chrome.runtime.onStartup.addListener(() => {
     checkAndSetAlarm();
     resetDailyNotificationFlags();
+    startBadgeCountdown();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
     checkAndSetAlarm();
     resetDailyNotificationFlags();
+    startBadgeCountdown();
 });
 
 function checkAndSetAlarm() {
@@ -495,6 +516,7 @@ function resetDailyNotificationFlags() {
             chrome.storage.local.set({
                 effective8hNotificationSent: false,
                 targetExitNotificationSent: false,
+                defaultNotificationsSetupDate: '',
                 lastWorkspaceStartAlertAt: 0,
                 workspaceStopAlertSentDate: '',
                 lastNotificationResetDate: today
@@ -578,6 +600,9 @@ function setupDefaultNotifications(effectiveTimeStr, grossTimeStr, effectiveMess
     // Start monitoring effective hours for 8h notification
     startEffectiveHoursMonitoring();
 
+    // Start the freedom countdown badge on the extension icon
+    startBadgeCountdown();
+
     // Start monitoring for target exit
     const grossTime = new Date(grossTimeStr);
     if (grossTime > now) {
@@ -604,6 +629,98 @@ function startEffectiveHoursMonitoring() {
         delayInMinutes: 1,
         periodInMinutes: 1
     });
+}
+
+// ============================================
+// FREEDOM COUNTDOWN BADGE ON EXTENSION ICON
+// ============================================
+
+// Start the badge countdown alarm (runs every minute)
+function startBadgeCountdown() {
+    chrome.storage.local.get(['badgeCountdownEnabled', 'targetGrossTime'], (data) => {
+        // Default to enabled
+        if (data.badgeCountdownEnabled === false) {
+            chrome.alarms.clear('badge_countdown');
+            chrome.action.setBadgeText({ text: '' });
+            return;
+        }
+
+        if (!data.targetGrossTime) {
+            // No target time set yet — clear badge and don't start alarm
+            chrome.action.setBadgeText({ text: '' });
+            return;
+        }
+
+        // Update immediately, then every minute
+        updateBadgeCountdown();
+        chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
+        chrome.alarms.clear('badge_countdown', () => {
+            chrome.alarms.create('badge_countdown', {
+                delayInMinutes: 1,
+                periodInMinutes: 1
+            });
+        });
+    });
+}
+
+// Update the extension icon badge with remaining time
+function updateBadgeCountdown() {
+    chrome.storage.local.get(['targetGrossTime', 'badgeCountdownEnabled', 'targetExitNotificationSent'], (data) => {
+        // Bail if disabled
+        if (data.badgeCountdownEnabled === false) {
+            chrome.action.setBadgeText({ text: '' });
+            return;
+        }
+
+        if (!data.targetGrossTime) {
+            chrome.action.setBadgeText({ text: '' });
+            return;
+        }
+
+        const targetTime = new Date(data.targetGrossTime);
+        const now = new Date();
+        const remainingMs = targetTime - now;
+
+        // If target exit notification was already sent or time is up
+        if (data.targetExitNotificationSent || remainingMs <= 0) {
+            // Show completion badge
+            chrome.action.setBadgeText({ text: '✓' });
+            chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_DONE });
+            chrome.action.setTitle({ title: 'Keka Hours Tracker — Freedom Time! 🎉' });
+
+            // Stop updating after showing done for 5 more minutes
+            // (the alarm will keep running but the badge stays as ✓)
+            return;
+        }
+
+        const totalMinutes = Math.ceil(remainingMs / (1000 * 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        // Format: "H:MM" like "2:15" or "0:44"
+        const badgeText = `${hours}:${minutes.toString().padStart(2, '0')}`;
+
+        // Set badge text
+        chrome.action.setBadgeText({ text: badgeText });
+
+        // Set color based on urgency
+        if (totalMinutes <= 30) {
+            chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_URGENT });
+        } else {
+            chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_ACTIVE });
+        }
+
+        // Set tooltip with more detail
+        const tooltipText = `Keka Hours Tracker — ${hours}h ${minutes}m remaining`;
+        chrome.action.setTitle({ title: tooltipText });
+    });
+}
+
+// Clear the badge (called on new day or when disabled)
+function clearBadgeCountdown() {
+    chrome.alarms.clear('badge_countdown');
+    chrome.action.setBadgeText({ text: '' });
+    chrome.action.setTitle({ title: 'Keka Hours Tracker' });
 }
 
 
