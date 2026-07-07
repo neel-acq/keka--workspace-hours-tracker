@@ -6,8 +6,9 @@ const credLog = typeof createLogger === 'function'
 
 const CREDENTIAL_COOLDOWN_MS = 10 * 60 * 1000;
 const CREDENTIAL_WATCH_INTERVAL_MS = 3000;
-const CREDENTIAL_WATCH_TIMEOUT_MS = 90000;
+const CREDENTIAL_WATCH_TIMEOUT_MS = 180000; // 3 minutes — enough for first-time SSO login
 const TEAMS_TOKEN_MARGIN_MS = 15 * 60 * 1000;
+const SILENT_REFRESH_INTERVAL_MIN = 30; // check every 30 minutes
 
 const KEKA_CAPTURE_URL = 'https://acquaint.keka.com/#/me/attendance/logs';
 const TEAMS_CAPTURE_URL = 'https://teams.microsoft.com/v2/';
@@ -36,6 +37,7 @@ const CREDENTIAL_SERVICES = {
 const credentialEnsureInFlight = new Set();
 let ensureRunPromise = null;
 const activeWatchers = new Set();
+let autoNextTimer = null;
 
 async function isKekaTokenValid() {
     const { kekaAuthToken } = await chrome.storage.local.get({ kekaAuthToken: '' });
@@ -80,7 +82,7 @@ async function getCredentialStatus() {
     };
 }
 
-async function openCredentialTabIfNeeded(service, { skipCooldown = false } = {}) {
+async function openCredentialTabIfNeeded(service, { skipCooldown = false, silent = false } = {}) {
     if (credentialEnsureInFlight.has(service)) {
         credLog.log('skip', service, '(in flight)');
         return false;
@@ -115,25 +117,34 @@ async function openCredentialTabIfNeeded(service, { skipCooldown = false } = {})
         if (existing.length) {
             tabId = existing[0].id;
             windowId = existing[0].windowId;
-            await chrome.tabs.update(tabId, { url: config.url, active: true });
+            // For silent refresh, don't activate; for interactive, bring to front
+            await chrome.tabs.update(tabId, { url: config.url, active: !silent });
         } else {
             const normalWindows = await chrome.windows.getAll({ windowTypes: ['normal'] });
             if (normalWindows.length > 0) {
                 const targetWindow = normalWindows.find(w => w.focused) || normalWindows[0];
-                const tab = await chrome.tabs.create({ url: config.url, active: true, windowId: targetWindow.id });
+                const tab = await chrome.tabs.create({
+                    url: config.url,
+                    active: !silent,
+                    windowId: targetWindow.id
+                });
                 tabId = tab.id;
                 windowId = targetWindow.id;
                 created = true;
             } else {
-                const newWindow = await chrome.windows.create({ url: config.url, type: 'normal', focused: true });
+                const newWindow = await chrome.windows.create({
+                    url: config.url,
+                    type: 'normal',
+                    focused: !silent
+                });
                 tabId = newWindow.tabs[0].id;
                 windowId = newWindow.id;
                 created = true;
             }
         }
 
-        // Focus the window so the user sees the tab
-        if (windowId) {
+        // Only focus window for interactive (non-silent) credential capture
+        if (windowId && !silent) {
             chrome.windows.update(windowId, { focused: true }).catch(() => {});
         }
 
@@ -143,7 +154,7 @@ async function openCredentialTabIfNeeded(service, { skipCooldown = false } = {})
 
         const stored = await chrome.storage.local.get({ credentialAutoTabs: {} });
         const autoTabs = stored.credentialAutoTabs || {};
-        autoTabs[service] = { tabId, created, openedAt: now };
+        autoTabs[service] = { tabId, created, openedAt: now, silent };
         lastRun[service] = now;
 
         await chrome.storage.local.set({
@@ -151,22 +162,39 @@ async function openCredentialTabIfNeeded(service, { skipCooldown = false } = {})
             credentialEnsureLastRun: lastRun
         });
 
-        credLog.log('opened', service, created ? '(new tab)' : '(existing tab)', tabId);
+        // Auto-close silent tabs after 60 seconds if capture succeeded
+        if (silent && created) {
+            setTimeout(async () => {
+                try {
+                    if (await isServiceValid(service)) {
+                        chrome.tabs.remove(tabId).catch(() => {});
+                        credLog.log('silent tab auto-closed for', service);
+                    }
+                } catch (e) { /* tab may already be gone */ }
+            }, 60000);
+        }
+
+        credLog.log('opened', service, created ? '(new tab)' : '(existing tab)', silent ? '(silent)' : '', tabId);
         return true;
     } catch (err) {
         credLog.warn('open failed', service, err?.message || err);
         return false;
     } finally {
-        setTimeout(() => credentialEnsureInFlight.delete(service), 30000);
+        // 5 seconds is enough to prevent double-opens while still allowing quick retries
+        setTimeout(() => credentialEnsureInFlight.delete(service), 5000);
     }
 }
 
 async function closeAutoTabForService(service) {
     const { credentialAutoTabs = {} } = await chrome.storage.local.get({ credentialAutoTabs: {} });
     const entry = credentialAutoTabs[service];
-    if (!entry?.created || !entry.tabId) return false;
+    if (!entry?.tabId) return false;
 
-    chrome.tabs.remove(entry.tabId).catch(() => {});
+    // Close the tab if we created it (or if it was a silent refresh tab)
+    if (entry.created || entry.silent) {
+        chrome.tabs.remove(entry.tabId).catch(() => {});
+    }
+
     delete credentialAutoTabs[service];
     await chrome.storage.local.set({ credentialAutoTabs });
     credLog.log('closed auto tab for', service);
@@ -196,6 +224,8 @@ function scheduleCredentialCaptureWatch(services) {
             if (!remaining.length) {
                 credLog.log('watch complete, all captured');
                 activeWatchers.delete(watchKey);
+                // Chain to next missing service after successful capture
+                triggerAutoNext();
                 return;
             }
 
@@ -215,6 +245,21 @@ function scheduleCredentialCaptureWatch(services) {
     setTimeout(tick, CREDENTIAL_WATCH_INTERVAL_MS);
 }
 
+/**
+ * Debounced trigger to open the next missing credential service.
+ * Safe to call frequently — only fires once per 2-second window.
+ */
+function triggerAutoNext() {
+    clearTimeout(autoNextTimer);
+    autoNextTimer = setTimeout(async () => {
+        const status = await getCredentialStatus();
+        if (!status.allValid) {
+            credLog.log('auto_next: still missing credentials, chaining...');
+            ensureRequiredCredentials('auto_next').catch(() => {});
+        }
+    }, 2000);
+}
+
 async function ensureRequiredCredentials(source = 'unknown') {
     if (ensureRunPromise) {
         credLog.log('join in-flight ensure from', source);
@@ -223,6 +268,7 @@ async function ensureRequiredCredentials(source = 'unknown') {
 
     // User-triggered sources skip the cooldown so websites always open
     const isUserAction = source === 'popup_open' || source === 'manual';
+    const isSilent = source === 'silent_refresh';
 
     ensureRunPromise = (async () => {
         credLog.log('ensure start', source);
@@ -245,7 +291,8 @@ async function ensureRequiredCredentials(source = 'unknown') {
             }
 
             const opened = await openCredentialTabIfNeeded(service, {
-                skipCooldown: isUserAction || source === 'auto_next'
+                skipCooldown: isUserAction || source === 'auto_next',
+                silent: isSilent
             });
             if (opened) {
                 refreshed.push(service);
@@ -281,6 +328,29 @@ function handleCredentialsMessage(message, sendResponse) {
     return false;
 }
 
+/**
+ * Silent background refresh — opens tabs in background during work hours
+ * to capture fresh tokens without user interaction (relies on SSO cookies).
+ */
+async function silentCredentialRefresh() {
+    // Only during weekday work hours (9am–8pm IST)
+    const now = new Date();
+    const day = now.getDay();
+    if (day === 0 || day === 6) return;
+    const hour = now.getHours();
+    if (hour < 9 || hour > 20) return;
+
+    const status = await getCredentialStatus();
+    if (status.allValid) return;
+
+    // Need at least one browser window open
+    const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+    if (!windows.length) return;
+
+    credLog.log('silent refresh: checking missing credentials');
+    await ensureRequiredCredentials('silent_refresh');
+}
+
 function initCredentialsModule() {
     chrome.runtime.onStartup.addListener(() => {
         // Delay startup check to give browser time to fully open windows
@@ -293,6 +363,17 @@ function initCredentialsModule() {
         setTimeout(() => {
             ensureRequiredCredentials('extension_install').catch(() => {});
         }, 3000);
+    });
+
+    // Periodic silent refresh alarm
+    chrome.alarms.create('credential_silent_refresh', {
+        periodInMinutes: SILENT_REFRESH_INTERVAL_MIN
+    });
+
+    chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm.name === 'credential_silent_refresh') {
+            silentCredentialRefresh().catch(() => {});
+        }
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -308,23 +389,15 @@ function initCredentialsModule() {
         if (!relevant) return;
 
         (async () => {
-            let capturedSomething = false;
+            // Close auto-tabs for services that are now valid
             for (const service of Object.keys(CREDENTIAL_SERVICES)) {
                 if (await isServiceValid(service)) {
-                    const closed = await closeAutoTabForService(service);
-                    if (closed) capturedSomething = true;
+                    await closeAutoTabForService(service);
                 }
             }
-            
-            // If we just captured and closed a tab, check if there are more missing
-            if (capturedSomething || relevant) {
-                const status = await getCredentialStatus();
-                if (!status.allValid) {
-                    setTimeout(() => {
-                        ensureRequiredCredentials('auto_next').catch(() => {});
-                    }, 1500); // Small delay to let SSO cookies settle
-                }
-            }
+
+            // Debounced: chain to next missing service
+            triggerAutoNext();
         })();
     });
 

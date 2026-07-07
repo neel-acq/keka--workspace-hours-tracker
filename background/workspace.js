@@ -8,6 +8,9 @@ const TIMER_TRACKING_URL = `${WORKSPACE_BASE}/admin/tasks/timer_tracking?single_
 const STOP_TIMER_THRESHOLD_HOURS = 8 + 5 / 60; // 8h 5m
 const { log: wsLog, warn: wsWarn, error: wsError } = createLogger("[Workspace]");
 
+let lastWorkspaceCredSyncAt = 0;
+const WORKSPACE_CRED_SYNC_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 function getCookie(url, name) {
   return new Promise((resolve) => {
     chrome.cookies.get({ url, name }, (cookie) => {
@@ -178,7 +181,9 @@ async function getWorkspaceAuth() {
     tabOnly,
   );
 
-  if (API_ENABLED && session && Object.keys(cookieMap).length) {
+  const credSyncNow = Date.now();
+  if (API_ENABLED && session && Object.keys(cookieMap).length && (credSyncNow - lastWorkspaceCredSyncAt > WORKSPACE_CRED_SYNC_TTL_MS)) {
+    lastWorkspaceCredSyncAt = credSyncNow;
     await syncWorkspaceCredentialsToApi({
       csrfToken: csrf,
       cookies: cookieMap,

@@ -12,6 +12,7 @@ const DEFAULT_EOD_MESSAGES = [
 
 let workspaceInitialized = false;
 let timesheetElapsedInterval = null;
+let loadWorkspaceDataInFlight = false;
 
 function initWorkspacePage() {
   if (!workspaceInitialized) {
@@ -26,26 +27,32 @@ const TEAMS_OPEN_URL = "https://teams.microsoft.com/v2/";
 let teamsTokenPollTimer = null;
 
 function openTabInNormalWindow(url, callback) {
-  chrome.windows.getAll({ windowTypes: ['normal'] }, (windows) => {
+  chrome.windows.getAll({ windowTypes: ["normal"] }, (windows) => {
     if (windows.length > 0) {
-      const targetWindow = windows.find(w => w.focused) || windows[0];
-      chrome.tabs.create({ url, active: true, windowId: targetWindow.id }, (tab) => {
-        chrome.windows.update(targetWindow.id, { focused: true });
-        if (callback) callback(tab);
-      });
+      const targetWindow = windows.find((w) => w.focused) || windows[0];
+      chrome.tabs.create(
+        { url, active: true, windowId: targetWindow.id },
+        (tab) => {
+          chrome.windows.update(targetWindow.id, { focused: true });
+          if (callback) callback(tab);
+        },
+      );
     } else {
-      chrome.windows.create({ url, type: 'normal', focused: true }, (newWindow) => {
-        if (callback && newWindow.tabs && newWindow.tabs.length > 0) {
-          callback(newWindow.tabs[0]);
-        }
-      });
+      chrome.windows.create(
+        { url, type: "normal", focused: true },
+        (newWindow) => {
+          if (callback && newWindow.tabs && newWindow.tabs.length > 0) {
+            callback(newWindow.tabs[0]);
+          }
+        },
+      );
     }
   });
 }
 
 function openTeamsForTokenCapture() {
   if (typeof TEAMS_CAPTURE_LOGGING !== "undefined" && TEAMS_CAPTURE_LOGGING) {
-    console.log("[Teams UI] opening", TEAMS_OPEN_URL);
+    // console.log("[Teams UI] opening", TEAMS_OPEN_URL);
   }
   openTabInNormalWindow(TEAMS_OPEN_URL, (tab) => {
     if (!tab?.id) return;
@@ -234,86 +241,94 @@ function openWorkspaceTasks() {
 }
 
 async function loadWorkspaceData() {
-  await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "SYNC_KEKA_PROFILE" }, () => resolve());
-  });
-
-  const data = await chrome.storage.local.get([
-    "teamsConversationId",
-    "teamsFromId",
-    "teamsDisplayName",
-    "kekaCompanyName",
-    "teamsPrewrittenMessages",
-    "teamsSkypeToken",
-    "teamsTokenExpiry",
-    "eodEnabled",
-    "workspaceAlertsEnabled",
-    "workspaceAlertInterval",
-  ]);
-
-  const displayNameInput = document.getElementById("teamsDisplayName");
-  const companyNameEl = document.getElementById("kekaCompanyName");
-  const fromIdInput = document.getElementById("teamsFromId");
-  const eodToggle = document.getElementById("eodEnabledToggle");
-
-  if (displayNameInput && data.teamsDisplayName) {
-    displayNameInput.value = data.teamsDisplayName;
-  }
-  if (companyNameEl && data.kekaCompanyName) {
-    companyNameEl.textContent = data.kekaCompanyName;
-    companyNameEl.style.display = "block";
-  } else if (companyNameEl) {
-    companyNameEl.style.display = "none";
-  }
-  if (fromIdInput && data.teamsFromId) {
-    fromIdInput.value = data.teamsFromId;
-  }
-  if (eodToggle) {
-    eodToggle.checked = data.eodEnabled !== false;
-  }
-
-  const alertsToggle = document.getElementById("workspaceAlertsToggle");
-  if (alertsToggle) {
-    alertsToggle.checked = data.workspaceAlertsEnabled !== false;
-  }
-
-  const intervalSelect = document.getElementById("workspaceAlertInterval");
-  if (intervalSelect) {
-    intervalSelect.value = String(data.workspaceAlertInterval || 15);
-  }
-
-  updateTeamsTokenStatus(data.teamsSkypeToken, data.teamsTokenExpiry);
-
-  if (!data.teamsSkypeToken) {
-    hookOpenTeamsTabsForCapture();
-  }
-
-  if (
-    !data.teamsFromId &&
-    data.teamsSkypeToken &&
-    data.teamsTokenExpiry > Date.now()
-  ) {
-    const idResponse = await chrome.runtime.sendMessage({
-      type: "FETCH_TEAMS_USER_ID",
+  if (loadWorkspaceDataInFlight) return;
+  loadWorkspaceDataInFlight = true;
+  try {
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SYNC_KEKA_PROFILE" }, () =>
+        resolve(),
+      );
     });
-    if (idResponse?.success && idResponse.teamsFromId) {
-      data.teamsFromId = idResponse.teamsFromId;
+
+    const data = await chrome.storage.local.get([
+      "teamsConversationId",
+      "teamsFromId",
+      "teamsDisplayName",
+      "kekaCompanyName",
+      "teamsPrewrittenMessages",
+      "teamsSkypeToken",
+      "teamsTokenExpiry",
+      "eodEnabled",
+      "workspaceAlertsEnabled",
+      "workspaceAlertInterval",
+    ]);
+
+    const displayNameInput = document.getElementById("teamsDisplayName");
+    const companyNameEl = document.getElementById("kekaCompanyName");
+    const fromIdInput = document.getElementById("teamsFromId");
+    const eodToggle = document.getElementById("eodEnabledToggle");
+
+    if (displayNameInput && data.teamsDisplayName) {
+      displayNameInput.value = data.teamsDisplayName;
     }
-  }
+    if (companyNameEl && data.kekaCompanyName) {
+      companyNameEl.textContent = data.kekaCompanyName;
+      companyNameEl.style.display = "block";
+    } else if (companyNameEl) {
+      companyNameEl.style.display = "none";
+    }
+    if (fromIdInput && data.teamsFromId) {
+      fromIdInput.value = data.teamsFromId;
+    }
+    if (eodToggle) {
+      eodToggle.checked = data.eodEnabled !== false;
+    }
 
-  updateTeamsFromIdUI(data.teamsFromId);
-  updateWorkspaceConfigStatus(data);
-  await fetchTeamsGroups(data.teamsConversationId);
-  renderPresetEditor(data.teamsPrewrittenMessages);
-  renderQuickEodButtons(data.teamsPrewrittenMessages);
-  await updateSmartSuggestion();
+    const alertsToggle = document.getElementById("workspaceAlertsToggle");
+    if (alertsToggle) {
+      alertsToggle.checked = data.workspaceAlertsEnabled !== false;
+    }
 
-  if (
-    data.teamsSkypeToken &&
-    data.teamsDisplayName &&
-    data.teamsConversationId
-  ) {
-    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" });
+    const intervalSelect = document.getElementById("workspaceAlertInterval");
+    if (intervalSelect) {
+      intervalSelect.value = String(data.workspaceAlertInterval || 15);
+    }
+
+    updateTeamsTokenStatus(data.teamsSkypeToken, data.teamsTokenExpiry);
+
+    if (!data.teamsSkypeToken) {
+      hookOpenTeamsTabsForCapture();
+    }
+
+    if (
+      !data.teamsFromId &&
+      data.teamsSkypeToken &&
+      data.teamsTokenExpiry > Date.now()
+    ) {
+      const idResponse = await chrome.runtime.sendMessage({
+        type: "FETCH_TEAMS_USER_ID",
+      });
+      if (idResponse?.success && idResponse.teamsFromId) {
+        data.teamsFromId = idResponse.teamsFromId;
+      }
+    }
+
+    updateTeamsFromIdUI(data.teamsFromId);
+    updateWorkspaceConfigStatus(data);
+    await fetchTeamsGroups(data.teamsConversationId);
+    renderPresetEditor(data.teamsPrewrittenMessages);
+    renderQuickEodButtons(data.teamsPrewrittenMessages);
+    await updateSmartSuggestion();
+
+    if (
+      data.teamsSkypeToken &&
+      data.teamsDisplayName &&
+      data.teamsConversationId
+    ) {
+      chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" });
+    }
+  } finally {
+    loadWorkspaceDataInFlight = false;
   }
 }
 
@@ -348,11 +363,11 @@ function updateTeamsTokenStatus(token, expiry) {
     const preview = token
       ? `${token.slice(0, 12)}… (${token.length} chars)`
       : "(none)";
-    console.log("[Teams UI] status check:", {
-      teamsSkypeToken: preview,
-      teamsTokenExpiry: expiry ? new Date(expiry).toISOString() : null,
-      valid: !!(token && (!expiry || expiry > Date.now())),
-    });
+    // console.log("[Teams UI] status check:", {
+    //   teamsSkypeToken: preview,
+    //   teamsTokenExpiry: expiry ? new Date(expiry).toISOString() : null,
+    //   valid: !!(token && (!expiry || expiry > Date.now())),
+    // });
   }
 
   if (!token) {
@@ -396,10 +411,7 @@ function updateWorkspaceConfigStatus(data) {
   const text = document.getElementById("workspaceConfigText");
   if (!badge || !text) return;
 
-  const isConfigured = !!(
-    data.teamsConversationId &&
-    data.teamsDisplayName
-  );
+  const isConfigured = !!(data.teamsConversationId && data.teamsDisplayName);
   if (isConfigured) {
     badge.textContent = t("ws_configured");
     badge.className = "card-badge ok";
@@ -456,11 +468,16 @@ async function fetchTeamsGroups(savedConversationId) {
   if (!savedFound && response.groups.length > 0) {
     select.options[0].selected = true;
     if (!savedConversationId) {
-      chrome.storage.local.set({ teamsConversationId: response.groups[0].id }).then(() => {
-        chrome.storage.local.get(["teamsDisplayName", "teamsConversationId"], (data) => {
-          updateWorkspaceConfigStatus(data);
+      chrome.storage.local
+        .set({ teamsConversationId: response.groups[0].id })
+        .then(() => {
+          chrome.storage.local.get(
+            ["teamsDisplayName", "teamsConversationId"],
+            (data) => {
+              updateWorkspaceConfigStatus(data);
+            },
+          );
         });
-      });
     }
   }
 }
@@ -540,7 +557,9 @@ async function saveWorkspaceSettings(e) {
   await chrome.storage.local.set(payload);
 
   await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" }, () => resolve());
+    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" }, () =>
+      resolve(),
+    );
   });
 
   showWorkspaceToast(t("ws_save_success"));

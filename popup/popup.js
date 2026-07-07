@@ -7,10 +7,8 @@ let notifications = [];
 
 function refreshCredentialsAndUI() {
     chrome.runtime.sendMessage({ type: 'ENSURE_CREDENTIALS', source: 'popup_open' }, () => {
-        if (typeof loadWorkspaceData === 'function') {
-            loadWorkspaceData();
-        }
         checkTokenAndUpdateUI();
+        autoFetchWorkspaceData();
     });
 }
 
@@ -19,8 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initLanguage();
     loadTheme();
     loadNotifications();
-    checkTokenAndUpdateUI();
-    autoFetchWorkspaceData();
     startCountdown();
     initNavigation();
     initPunchCardToggle();
@@ -1282,6 +1278,8 @@ function testNotification() {
 }
 
 // Listen for storage changes
+let workspaceReloadTimer = null;
+
 chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'local') {
         if (changes.scrapedAttendance) {
@@ -1294,9 +1292,12 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
             checkTokenAndUpdateUI();
         }
         if (changes.kekaAuthToken || changes.teamsSkypeToken || changes.teamsTokenExpiry) {
-            if (typeof loadWorkspaceData === 'function') {
-                loadWorkspaceData();
-            }
+            clearTimeout(workspaceReloadTimer);
+            workspaceReloadTimer = setTimeout(() => {
+                if (typeof loadWorkspaceData === 'function') {
+                    loadWorkspaceData();
+                }
+            }, 500);
         }
     }
 });
