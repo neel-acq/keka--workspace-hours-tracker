@@ -512,15 +512,20 @@ function resetDailyNotificationFlags() {
         const today = new Date().toDateString();
 
         if (data.lastNotificationResetDate !== today) {
-            // New day, reset all notification flags
+            // New day, reset all notification flags AND clear stale target times
             chrome.storage.local.set({
                 effective8hNotificationSent: false,
                 targetExitNotificationSent: false,
                 defaultNotificationsSetupDate: '',
                 lastWorkspaceStartAlertAt: 0,
                 workspaceStopAlertSentDate: '',
-                lastNotificationResetDate: today
+                lastNotificationResetDate: today,
+                targetGrossTime: '',
+                targetEffectiveTime: ''
             });
+
+            // Clear badge so it doesn't show stale ✓ from yesterday
+            clearBadgeCountdown();
         }
     });
 }
@@ -635,7 +640,7 @@ function startEffectiveHoursMonitoring() {
 // FREEDOM COUNTDOWN BADGE ON EXTENSION ICON
 // ============================================
 
-// Start the badge countdown alarm (runs every minute)
+// Start the badge countdown (self-scheduling, minute-boundary aligned)
 function startBadgeCountdown() {
     chrome.storage.local.get(['badgeCountdownEnabled', 'targetGrossTime'], (data) => {
         // Default to enabled
@@ -651,21 +656,20 @@ function startBadgeCountdown() {
             return;
         }
 
-        // Update immediately, then every minute
-        updateBadgeCountdown();
+        // Update immediately — updateBadgeCountdown will self-schedule the
+        // next alarm aligned to the countdown's minute boundary
         chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
         chrome.alarms.clear('badge_countdown', () => {
-            chrome.alarms.create('badge_countdown', {
-                delayInMinutes: 1,
-                periodInMinutes: 1
-            });
+            updateBadgeCountdown();
         });
     });
 }
 
-// Update the extension icon badge with remaining time
+// Update the extension icon badge with remaining time.
+// Self-schedules the next alarm at the exact moment the countdown
+// crosses the next minute boundary (e.g., 8:17:00 → 8:16:00).
 function updateBadgeCountdown() {
-    chrome.storage.local.get(['targetGrossTime', 'badgeCountdownEnabled', 'targetExitNotificationSent'], (data) => {
+    chrome.storage.local.get(['targetGrossTime', 'badgeCountdownEnabled', 'targetExitNotificationSent', 'scrapedAttendance'], (data) => {
         // Bail if disabled
         if (data.badgeCountdownEnabled === false) {
             chrome.action.setBadgeText({ text: '' });
@@ -677,23 +681,37 @@ function updateBadgeCountdown() {
             return;
         }
 
+        // Validate that we have today's attendance with an IN time.
+        // If no IN time today (new day, not punched in yet), don't show stale badge.
+        const todayEntry = data.scrapedAttendance ? resolveTodayEntry(data.scrapedAttendance) : null;
+        const hasTodayIn = todayEntry && (
+            (todayEntry.inOutArray && todayEntry.inOutArray.some(s => s.type === 'IN' && s.time && s.time !== 'MISSING')) ||
+            (todayEntry.checkIn && todayEntry.checkIn !== 'MISSING')
+        );
+
+        if (!hasTodayIn) {
+            // No IN time today — clear badge, don't show stale ✓ or countdown
+            chrome.action.setBadgeText({ text: '' });
+            chrome.action.setTitle({ title: 'Keka Hours Tracker' });
+            return;
+        }
+
         const targetTime = new Date(data.targetGrossTime);
         const now = new Date();
         const remainingMs = targetTime - now;
 
         // If target exit notification was already sent or time is up
         if (data.targetExitNotificationSent || remainingMs <= 0) {
-            // Show completion badge
+            // Show completion badge — no further scheduling needed
             chrome.action.setBadgeText({ text: '✓' });
             chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_DONE });
             chrome.action.setTitle({ title: 'Keka Hours Tracker — Freedom Time! 🎉' });
-
-            // Stop updating after showing done for 5 more minutes
-            // (the alarm will keep running but the badge stays as ✓)
             return;
         }
 
-        const totalMinutes = Math.ceil(remainingMs / (1000 * 60));
+        // Use Math.floor so badge shows exact completed minutes
+        // e.g., 08:40:49 remaining → badge shows 8:40 (not 8:41)
+        const totalMinutes = Math.floor(remainingMs / (1000 * 60));
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
 
@@ -713,6 +731,23 @@ function updateBadgeCountdown() {
         // Set tooltip with more detail
         const tooltipText = `Keka Hours Tracker — ${hours}h ${minutes}m remaining`;
         chrome.action.setTitle({ title: tooltipText });
+
+        // ── Self-schedule next alarm aligned to minute boundary ──
+        // remainingMs % 60000 = milliseconds until the countdown crosses
+        // the next exact minute (e.g., 8:17:00 → 8:16:00).
+        // This ensures the badge transitions at exactly X:00, not at
+        // some arbitrary offset from the alarm start time.
+        const msToNextMinuteBoundary = remainingMs % 60000;
+        // If we're right at a boundary (< 1 s), wait for the NEXT full minute
+        const nextAlarmDelayMs = msToNextMinuteBoundary < 1000
+            ? msToNextMinuteBoundary + 60000
+            : msToNextMinuteBoundary;
+
+        chrome.alarms.clear('badge_countdown', () => {
+            chrome.alarms.create('badge_countdown', {
+                when: Date.now() + nextAlarmDelayMs
+            });
+        });
     });
 }
 

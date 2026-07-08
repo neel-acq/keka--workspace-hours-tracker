@@ -10,6 +10,52 @@ const CREDENTIAL_WATCH_TIMEOUT_MS = 180000; // 3 minutes — enough for first-ti
 const TEAMS_TOKEN_MARGIN_MS = 15 * 60 * 1000;
 const SILENT_REFRESH_INTERVAL_MIN = 30; // check every 30 minutes
 
+// Circuit breaker: exponential backoff cooldowns per failure count
+const CREDENTIAL_BACKOFF_MS = [
+    10 * 60 * 1000,   // 1st attempt: 10 min (default)
+    30 * 60 * 1000,   // 2nd failure: 30 min
+    60 * 60 * 1000    // 3rd+ failure: 60 min (max)
+];
+const CREDENTIAL_MAX_FAILURES = CREDENTIAL_BACKOFF_MS.length - 1;
+
+// In-memory failure counters (persisted to storage for cross-restart survival)
+const credentialFailures = {}; // { keka: { count: 0, lastAttempt: 0 } }
+
+async function loadFailureCounts() {
+    const { credentialFailureCounts = {} } = await chrome.storage.local.get('credentialFailureCounts');
+    Object.assign(credentialFailures, credentialFailureCounts);
+}
+
+async function saveFailureCounts() {
+    await chrome.storage.local.set({ credentialFailureCounts: { ...credentialFailures } });
+}
+
+function getBackoffCooldown(service) {
+    const record = credentialFailures[service];
+    if (!record || record.count <= 0) return CREDENTIAL_COOLDOWN_MS;
+    const idx = Math.min(record.count, CREDENTIAL_MAX_FAILURES);
+    return CREDENTIAL_BACKOFF_MS[idx];
+}
+
+async function recordFailure(service) {
+    if (!credentialFailures[service]) {
+        credentialFailures[service] = { count: 0, lastAttempt: 0 };
+    }
+    credentialFailures[service].count++;
+    credentialFailures[service].lastAttempt = Date.now();
+    credLog.warn('failure recorded for', service, '— count:', credentialFailures[service].count,
+        '— next backoff:', getBackoffCooldown(service) / 60000, 'min');
+    await saveFailureCounts();
+}
+
+async function resetFailure(service) {
+    if (credentialFailures[service] && credentialFailures[service].count > 0) {
+        credLog.log('failure count reset for', service);
+        credentialFailures[service] = { count: 0, lastAttempt: 0 };
+        await saveFailureCounts();
+    }
+}
+
 const KEKA_CAPTURE_URL = 'https://acquaint.keka.com/#/me/attendance/logs';
 const TEAMS_CAPTURE_URL = 'https://teams.microsoft.com/v2/';
 const WORKSPACE_CAPTURE_URL = 'https://workspace.acquaintsoft.com/admin/staff/timesheets';
@@ -102,8 +148,10 @@ async function openCredentialTabIfNeeded(service, { skipCooldown = false, silent
     const lastRun = data.credentialEnsureLastRun || {};
     const now = Date.now();
 
-    if (!skipCooldown && lastRun[service] && now - lastRun[service] < CREDENTIAL_COOLDOWN_MS) {
-        credLog.log('skip', service, '(cooldown)');
+    // Use dynamic backoff cooldown based on failure count
+    const cooldownMs = getBackoffCooldown(service);
+    if (!skipCooldown && lastRun[service] && now - lastRun[service] < cooldownMs) {
+        credLog.log('skip', service, '(cooldown, backoff:', cooldownMs / 60000, 'min)');
         return false;
     }
 
@@ -162,13 +210,16 @@ async function openCredentialTabIfNeeded(service, { skipCooldown = false, silent
             credentialEnsureLastRun: lastRun
         });
 
-        // Auto-close silent tabs after 60 seconds if capture succeeded
+        // Auto-close silent tabs after 60 seconds ONLY if capture succeeded.
+        // If capture failed, leave the tab open so user can see the login page.
         if (silent && created) {
             setTimeout(async () => {
                 try {
                     if (await isServiceValid(service)) {
                         chrome.tabs.remove(tabId).catch(() => {});
-                        credLog.log('silent tab auto-closed for', service);
+                        credLog.log('silent tab auto-closed for', service, '(capture succeeded)');
+                    } else {
+                        credLog.log('silent tab kept open for', service, '(capture failed — user needs to log in)');
                     }
                 } catch (e) { /* tab may already be gone */ }
             }, 60000);
@@ -213,6 +264,8 @@ function scheduleCredentialCaptureWatch(services) {
             for (const service of services) {
                 if (await isServiceValid(service)) {
                     await closeAutoTabForService(service);
+                    // Reset failure counter on successful capture
+                    await resetFailure(service);
                 }
             }
 
@@ -224,7 +277,7 @@ function scheduleCredentialCaptureWatch(services) {
             if (!remaining.length) {
                 credLog.log('watch complete, all captured');
                 activeWatchers.delete(watchKey);
-                // Chain to next missing service after successful capture
+                // Chain to next missing service after SUCCESSFUL capture
                 triggerAutoNext();
                 return;
             }
@@ -232,6 +285,12 @@ function scheduleCredentialCaptureWatch(services) {
             if (Date.now() - started > CREDENTIAL_WATCH_TIMEOUT_MS) {
                 credLog.warn('watch timeout, still missing:', remaining.join(', '));
                 activeWatchers.delete(watchKey);
+                // Record failure for each service that wasn't captured
+                // Do NOT call triggerAutoNext() — this is the key anti-recursion fix.
+                // The backoff cooldown will prevent immediate retries.
+                for (const service of remaining) {
+                    await recordFailure(service);
+                }
                 return;
             }
 
@@ -248,6 +307,7 @@ function scheduleCredentialCaptureWatch(services) {
 /**
  * Debounced trigger to open the next missing credential service.
  * Safe to call frequently — only fires once per 2-second window.
+ * Uses 'auto_next' source which RESPECTS backoff cooldown (not skip it).
  */
 function triggerAutoNext() {
     clearTimeout(autoNextTimer);
@@ -255,6 +315,7 @@ function triggerAutoNext() {
         const status = await getCredentialStatus();
         if (!status.allValid) {
             credLog.log('auto_next: still missing credentials, chaining...');
+            // auto_next does NOT skip cooldown — backoff is respected
             ensureRequiredCredentials('auto_next').catch(() => {});
         }
     }, 2000);
@@ -266,7 +327,7 @@ async function ensureRequiredCredentials(source = 'unknown') {
         return ensureRunPromise;
     }
 
-    // User-triggered sources skip the cooldown so websites always open
+    // Only explicit user actions skip the cooldown — auto_next respects backoff
     const isUserAction = source === 'popup_open' || source === 'manual';
     const isSilent = source === 'silent_refresh';
 
@@ -291,7 +352,8 @@ async function ensureRequiredCredentials(source = 'unknown') {
             }
 
             const opened = await openCredentialTabIfNeeded(service, {
-                skipCooldown: isUserAction || source === 'auto_next',
+                // Only user actions skip cooldown — auto_next, silent, startup all respect backoff
+                skipCooldown: isUserAction,
                 silent: isSilent
             });
             if (opened) {
@@ -389,17 +451,28 @@ function initCredentialsModule() {
         if (!relevant) return;
 
         (async () => {
+            let anyNewlyValid = false;
+
             // Close auto-tabs for services that are now valid
             for (const service of Object.keys(CREDENTIAL_SERVICES)) {
                 if (await isServiceValid(service)) {
                     await closeAutoTabForService(service);
+                    // Reset failure counter since capture succeeded
+                    await resetFailure(service);
+                    anyNewlyValid = true;
                 }
             }
 
-            // Debounced: chain to next missing service
-            triggerAutoNext();
+            // Only chain to next service if at least one service just became valid.
+            // This prevents triggering auto_next when unrelated storage changes fire.
+            if (anyNewlyValid) {
+                triggerAutoNext();
+            }
         })();
     });
+
+    // Load persisted failure counts on module init
+    loadFailureCounts().then(() => credLog.log('failure counts loaded'));
 
     credLog.log('module ready');
 }

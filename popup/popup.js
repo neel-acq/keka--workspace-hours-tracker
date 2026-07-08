@@ -1009,7 +1009,6 @@ function loadShiftData() {
             document.getElementById('shiftName').textContent = todayEntry.shift || 'Not Available';
             document.getElementById('shiftStart').textContent = todayEntry.shiftStart || '--:--';
             document.getElementById('shiftEnd').textContent = todayEntry.shiftEnd || '--:--';
-            console.log(`todayEntry : ${JSON.stringify(todayEntry, 2, 2)}`);
 
             // Calculate shift duration
             if (todayEntry.shiftStart && todayEntry.shiftEnd) {
