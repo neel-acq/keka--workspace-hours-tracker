@@ -498,6 +498,17 @@ function handleEodMessage(message, sendResponse) {
     return true;
   }
 
+  if (message.type === "SYNC_TEAMS_FROM_API") {
+    if (typeof syncTeamsCredentialsFromApi === "function") {
+      syncTeamsCredentialsFromApi().then((restored) =>
+        sendResponse({ success: true, restored }),
+      );
+    } else {
+      sendResponse({ success: false, error: "function not available" });
+    }
+    return true;
+  }
+
   if (message.type === "LOG_TEAMS_STORAGE") {
     logTeamsStorageState("manual");
     sendResponse({ success: true, keys: TEAMS_STORAGE_KEYS });

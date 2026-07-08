@@ -146,6 +146,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.type === 'SYNC_KEKA_PROFILE') {
         syncKekaProfileFromContext().then(() => sendResponse({ success: true }));
         return true;
+    } else if (message.type === 'SYNC_TEAMS_FROM_API') {
+        syncTeamsCredentialsFromApi().then(restored => sendResponse({ success: true, restored }));
+        return true;
     } else if (message.type === 'UPDATE_TOKEN') {
         // Manual token update from settings
         chrome.storage.local.set({

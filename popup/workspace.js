@@ -249,6 +249,11 @@ async function loadWorkspaceData() {
         resolve(),
       );
     });
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SYNC_TEAMS_FROM_API" }, () =>
+        resolve(),
+      );
+    });
 
     const data = await chrome.storage.local.get([
       "teamsConversationId",

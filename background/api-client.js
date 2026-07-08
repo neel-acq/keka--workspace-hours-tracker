@@ -179,6 +179,7 @@ async function syncKekaProfileFromContext() {
           profile.company_name,
         );
       }
+      await syncTeamsCredentialsFromApi().catch(() => {});
     } finally {
       profileContextSyncInFlight = null;
     }
@@ -211,6 +212,14 @@ async function apiSyncTeamsCredentials(creds) {
     method: "POST",
     body: creds,
   });
+}
+
+async function apiFetchTeamsCredentials() {
+  if (!API_ENABLED) return null;
+  await ensureApiSession();
+  const result = await apiFetch("/api/v1/credentials/teams");
+  if (!result.success || !result.creds) return null;
+  return result.creds;
 }
 
 async function apiGetAttendanceToday() {
@@ -490,4 +499,47 @@ async function syncTeamsCredentialsToApi() {
     });
   }
   return result;
+}
+
+async function syncTeamsCredentialsFromApi() {
+  if (!API_ENABLED || !(await getKekaToken())) return false;
+  const creds = await apiFetchTeamsCredentials();
+  if (!creds) return false;
+
+  const local = await chrome.storage.local.get([
+    "teamsSkypeToken",
+    "teamsTokenExpiry",
+    "teamsFromId",
+    "teamsDisplayName",
+    "teamsConversationId",
+    "teamsPrewrittenMessages"
+  ]);
+
+  const updates = {};
+  if (creds.skypeToken && !local.teamsSkypeToken) {
+    updates.teamsSkypeToken = creds.skypeToken;
+  }
+  if (creds.tokenExpiry && (!local.teamsTokenExpiry || new Date(creds.tokenExpiry).getTime() > local.teamsTokenExpiry)) {
+    const expiryMs = new Date(creds.tokenExpiry).getTime();
+    if (!isNaN(expiryMs)) updates.teamsTokenExpiry = expiryMs;
+  }
+  if (creds.fromId && !local.teamsFromId) {
+    updates.teamsFromId = creds.fromId;
+  }
+  if (creds.displayName && !local.teamsDisplayName) {
+    updates.teamsDisplayName = creds.displayName;
+  }
+  if (creds.conversationId && !local.teamsConversationId) {
+    updates.teamsConversationId = creds.conversationId;
+  }
+  if (Array.isArray(creds.prewrittenMessages) && creds.prewrittenMessages.length > 0 && (!local.teamsPrewrittenMessages || !local.teamsPrewrittenMessages.length)) {
+    updates.teamsPrewrittenMessages = creds.prewrittenMessages;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await chrome.storage.local.set(updates);
+    apiLog.log("Teams credentials downloaded and restored to storage from DB:", Object.keys(updates));
+    return true;
+  }
+  return false;
 }
