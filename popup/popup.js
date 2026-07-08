@@ -41,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('notificationsToggle').addEventListener('change', handleNotificationsToggle);
     document.getElementById('autoSyncToggle').addEventListener('change', handleAutoSyncToggle);
     document.getElementById('badgeCountdownToggle').addEventListener('change', handleBadgeCountdownToggle);
+    document.getElementById('windowModeSelect').addEventListener('change', handleWindowModeChange);
     document.getElementById('languageSelect').addEventListener('change', handleLanguageChange);
     document.getElementById('funnyTextToggle').addEventListener('change', handleFunnyTextToggle);
 
@@ -1072,12 +1073,16 @@ function parseTime12Hour(timeStr) {
 
 // Load Preferences
 function loadPreferences() {
-    chrome.storage.local.get(['darkMode', 'notificationsEnabled', 'autoSyncEnabled', 'badgeCountdownEnabled', 'language', 'funnyTextMode'], (data) => {
+    chrome.storage.local.get(['darkMode', 'notificationsEnabled', 'autoSyncEnabled', 'badgeCountdownEnabled', 'language', 'funnyTextMode', 'windowMode'], (data) => {
         document.getElementById('darkModeToggle').checked = data.darkMode || false;
         document.getElementById('notificationsToggle').checked = data.notificationsEnabled !== false;
         document.getElementById('autoSyncToggle').checked = data.autoSyncEnabled !== false;
         document.getElementById('badgeCountdownToggle').checked = data.badgeCountdownEnabled !== false;
         document.getElementById('languageSelect').value = data.language || 'en';
+        const windowModeSelect = document.getElementById('windowModeSelect');
+        if (windowModeSelect) {
+            windowModeSelect.value = data.windowMode || 'floating';
+        }
         const funnyToggle = document.getElementById('funnyTextToggle');
         if (funnyToggle) {
             funnyToggle.checked = data.funnyTextMode !== false;
@@ -1113,6 +1118,12 @@ function handleAutoSyncToggle(e) {
 function handleBadgeCountdownToggle(e) {
     const enabled = e.target.checked;
     chrome.runtime.sendMessage({ type: 'TOGGLE_BADGE_COUNTDOWN', enabled: enabled });
+}
+
+// Handle Window Mode Change
+function handleWindowModeChange(e) {
+    const mode = e.target.value;
+    chrome.runtime.sendMessage({ type: 'UPDATE_WINDOW_MODE', mode: mode });
 }
 
 // Handle Language Change

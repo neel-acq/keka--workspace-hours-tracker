@@ -17,7 +17,21 @@ const BADGE_COLOR_ACTIVE = '#E91E63';    // Pink/red — time remaining
 const BADGE_COLOR_URGENT = '#FF5722';    // Orange — under 30 min
 const BADGE_COLOR_DONE = '#4CAF50';      // Green — freedom!
 
-// Handle extension icon click to open moveable window
+// Helper to apply window mode (sticky vs floating)
+function applyWindowMode(mode) {
+    if (mode === 'sticky') {
+        chrome.action.setPopup({ popup: 'popup/popup.html' });
+    } else {
+        chrome.action.setPopup({ popup: '' });
+    }
+}
+
+// Initialize window mode on service worker load
+chrome.storage.local.get({ windowMode: 'floating' }, (data) => {
+    applyWindowMode(data.windowMode);
+});
+
+// Handle extension icon click to open moveable window (only triggers when mode is 'floating')
 chrome.action.onClicked.addListener(() => {
     chrome.windows.create({
         url: chrome.runtime.getURL('popup/popup.html'),
@@ -114,6 +128,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             } else {
                 clearBadgeCountdown();
             }
+            sendResponse({ success: true });
+        });
+        return true;
+    } else if (message.type === 'UPDATE_WINDOW_MODE') {
+        const mode = message.mode || 'floating';
+        chrome.storage.local.set({ windowMode: mode }, () => {
+            applyWindowMode(mode);
             sendResponse({ success: true });
         });
         return true;
