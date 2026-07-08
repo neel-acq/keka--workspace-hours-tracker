@@ -121,7 +121,7 @@ async function promptEodModal(tabId, suggestedMessage, reason = "timer_stop") {
 
   ensureRequiredCredentials("eod_modal").catch(() => {});
 
-  const suggestion = suggestedMessage || (await computeSmartEodSuggestion());
+  const suggestion = suggestedMessage || (await computeSmartEodSuggestion(reason));
   const config = {
     variant: "eod",
     reason,
@@ -543,7 +543,7 @@ function handleEodMessage(message, sendResponse) {
   }
 
   if (message.type === "GET_SMART_EOD_SUGGESTION") {
-    computeSmartEodSuggestion().then((suggestion) =>
+    computeSmartEodSuggestion(message.reason).then((suggestion) =>
       sendResponse({ suggestion }),
     );
     return true;
@@ -724,9 +724,9 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-async function computeSmartEodSuggestion() {
+async function computeSmartEodSuggestion(reason) {
   if (API_ENABLED) {
-    const apiResult = await apiGetEodSuggestion();
+    const apiResult = await apiGetEodSuggestion(reason);
     if (apiResult.success && apiResult.suggestion) {
       return apiResult.suggestion;
     }
@@ -745,17 +745,31 @@ async function computeSmartEodSuggestion() {
 
   const msg = (index, fallback) => presets[index] || fallback || presets[0];
 
-  if (!scrapedAttendance || !scrapedAttendance.entries) {
-    return msg(0, "Good Morning.");
+  const todayEntry =
+    scrapedAttendance && scrapedAttendance.entries
+      ? findTodayAttendanceEntry(scrapedAttendance)
+      : null;
+  const inOutArray = todayEntry ? todayEntry.inOutArray || [] : [];
+  const stats =
+    inOutArray && inOutArray.length
+      ? calculateAttendanceStats(inOutArray)
+      : null;
+
+  if (reason === "timer_start") {
+    if (!inOutArray.length || !stats || stats.effectiveSeconds < 60) {
+      return msg(0, "Good Morning.");
+    }
+    return msg(2, "Back from Break.");
   }
 
-  const todayEntry = findTodayAttendanceEntry(scrapedAttendance);
-  if (!todayEntry) {
-    return msg(0, "Good Morning.");
+  if (reason === "timer_stop") {
+    if (stats && stats.effectiveSeconds >= EIGHT_HOURS_SECONDS) {
+      return msg(3, "Leaving for the day");
+    }
+    return msg(1, "Going For Break.");
   }
 
-  const inOutArray = todayEntry.inOutArray;
-  if (!inOutArray || inOutArray.length === 0) {
+  if (!inOutArray.length) {
     const now = new Date();
     if (now.getHours() < 10) {
       return msg(0, "Good Morning.");
@@ -763,7 +777,6 @@ async function computeSmartEodSuggestion() {
     return msg(3, "Leaving for the day");
   }
 
-  const stats = calculateAttendanceStats(inOutArray);
   if (!stats) {
     return presets[0];
   }

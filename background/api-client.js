@@ -284,9 +284,10 @@ async function apiSendTeamsMessage(message) {
   });
 }
 
-async function apiGetEodSuggestion() {
+async function apiGetEodSuggestion(reason) {
   await ensureApiSession();
-  return apiFetch("/api/v1/eod/suggestion");
+  const query = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+  return apiFetch(`/api/v1/eod/suggestion${query}`);
 }
 
 function getCookieForApi(url, name) {
