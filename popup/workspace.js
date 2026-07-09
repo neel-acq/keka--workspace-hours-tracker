@@ -244,17 +244,6 @@ async function loadWorkspaceData() {
   if (loadWorkspaceDataInFlight) return;
   loadWorkspaceDataInFlight = true;
   try {
-    await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "SYNC_KEKA_PROFILE" }, () =>
-        resolve(),
-      );
-    });
-    await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "SYNC_TEAMS_FROM_API" }, () =>
-        resolve(),
-      );
-    });
-
     const data = await chrome.storage.local.get([
       "teamsConversationId",
       "teamsFromId",
@@ -324,14 +313,6 @@ async function loadWorkspaceData() {
     renderPresetEditor(data.teamsPrewrittenMessages);
     renderQuickEodButtons(data.teamsPrewrittenMessages);
     await updateSmartSuggestion();
-
-    if (
-      data.teamsSkypeToken &&
-      data.teamsDisplayName &&
-      data.teamsConversationId
-    ) {
-      chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" });
-    }
   } finally {
     loadWorkspaceDataInFlight = false;
   }

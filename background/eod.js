@@ -600,7 +600,6 @@ function isTeamsConfigApiError(error) {
 
 async function handleSendTeamsMessage(messageText) {
   if (API_ENABLED) {
-    await syncTeamsCredentialsToApi();
     const apiResult = await apiSendTeamsMessage(messageText);
     if (apiResult.success) return { success: true };
     if (apiResult.error && !isTeamsConfigApiError(apiResult.error)) {
@@ -725,12 +724,6 @@ function escapeHtml(text) {
 }
 
 async function computeSmartEodSuggestion(reason) {
-  if (API_ENABLED) {
-    const apiResult = await apiGetEodSuggestion(reason);
-    if (apiResult.success && apiResult.suggestion) {
-      return apiResult.suggestion;
-    }
-  }
 
   const { teamsPrewrittenMessages, scrapedAttendance } =
     await chrome.storage.local.get({
