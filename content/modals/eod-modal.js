@@ -1,9 +1,9 @@
 // EOD Teams modal variant
 
 const DEFAULT_EOD_MESSAGES = [
-    'Good Morning.',
-    'Going For Break.',
-    'Back from Break.',
+    'Good Morning',
+    'Going For Break',
+    'Back from Break',
     'Leaving for the day',
     'Done for today, see you tomorrow!'
 ];

@@ -378,16 +378,30 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
 
     const effectiveEnd = new Date(inDate.getTime() + 8 * 60 * 60 * 1000);
 
-    // Calculate target exit time based on entry time and 7 PM rule
+    // Calculate target exit time based on entry time, 8h rule and breaks
     let targetExitTime;
+    const requiredEffectiveMs = 8 * 60 * 60 * 1000;
+    const breakMs = displayBreakSeconds * 1000;
+    const targetWithActualBreak = new Date(inDate.getTime() + requiredEffectiveMs + breakMs);
+
     if (isEarlyEntryDisplay) {
-        // If entered before 10 AM, target exit is 7 PM
-        targetExitTime = new Date(inDate);
-        targetExitTime.setHours(19, 0, 0, 0); // 7 PM
+        // If entered before 10 AM, target exit is 7 PM, extended if break is long
+        const sevenPm = new Date(inDate);
+        sevenPm.setHours(19, 0, 0, 0); // 7 PM
+        targetExitTime = new Date(Math.max(sevenPm.getTime(), targetWithActualBreak.getTime()));
     } else {
-        // If entered after 10 AM, use 9-hour rule
-        targetExitTime = new Date(inDate.getTime() + 9 * 60 * 60 * 1000);
+        // If entered after 10 AM, use 9-hour rule base, extended if break > 1h
+        const oneHourBreakMs = 60 * 60 * 1000;
+        const targetWithStandardBreak = new Date(inDate.getTime() + requiredEffectiveMs + oneHourBreakMs);
+        targetExitTime = new Date(Math.max(targetWithStandardBreak.getTime(), targetWithActualBreak.getTime()));
     }
+
+    // Keep background badge countdown in sync if break time pushed the exit time
+    chrome.storage.local.get(['targetGrossTime'], (data) => {
+        if (data.targetGrossTime !== targetExitTime.toISOString()) {
+            chrome.storage.local.set({ targetGrossTime: targetExitTime.toISOString() });
+        }
+    });
 
     // Only set if element exists (it's commented out in HTML)
     const effectiveEndEl = document.getElementById('effectiveEnd');

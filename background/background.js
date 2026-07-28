@@ -618,7 +618,10 @@ function setupDefaultNotifications(effectiveTimeStr, grossTimeStr, effectiveMess
         },
         targetEffectiveTime: effectiveTimeStr,
         targetGrossTime: grossTimeStr,
-        isEarlyEntry: isEarlyEntry || false
+        isEarlyEntry: isEarlyEntry || false,
+        targetExitNotificationSent: false,
+        effective8hNotificationSent: false,
+        lastNotificationResetDate: now.toDateString()
     });
 
     // Clear existing default alarms
@@ -722,6 +725,14 @@ function updateBadgeCountdown() {
 
         const targetTime = new Date(data.targetGrossTime);
         const now = new Date();
+        
+        // If target gross time is from a previous day, clear stale badge
+        if (targetTime.toDateString() !== now.toDateString()) {
+            chrome.action.setBadgeText({ text: '' });
+            chrome.action.setTitle({ title: 'Keka Hours Tracker' });
+            return;
+        }
+
         const remainingMs = targetTime - now;
 
         // If target exit notification was already sent or time is up

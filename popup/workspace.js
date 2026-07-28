@@ -3,9 +3,9 @@
 const wsUiLog = createLogger("[Workspace UI]");
 
 const DEFAULT_EOD_MESSAGES = [
-  "Good Morning.",
-  "Going For Break.",
-  "Back from Break.",
+  "Good Morning",
+  "Going For Break",
+  "Back from Break",
   "Leaving for the day",
   "Done for today, see you tomorrow!",
 ];
@@ -387,8 +387,8 @@ function updateTeamsTokenStatus(token, expiry) {
       hoursLeft < 1
         ? t("ws_token_expires_soon").replace("{m}", minutesLeft)
         : t("ws_token_expires")
-            .replace("{h}", hoursLeft)
-            .replace("{m}", minutesLeft);
+          .replace("{h}", hoursLeft)
+          .replace("{m}", minutesLeft);
   }
 }
 

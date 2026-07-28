@@ -972,11 +972,13 @@ async function checkWorkspaceTimerAlerts() {
   const intervalMinutes = settings.workspaceAlertInterval || 15;
 
   // Start-timer reminder: Keka IN, no workspace timer running, repeats every interval
+  const totalHours = timesheet?.totalDecimal || 0;
   if (
     hasKekaIn &&
     !activeTimer &&
     !isLunchBreak() &&
-    canSendStartAlert(settings.lastWorkspaceStartAlertAt, intervalMinutes)
+    canSendStartAlert(settings.lastWorkspaceStartAlertAt, intervalMinutes) &&
+    totalHours < 8
   ) {
     await chrome.storage.local.set({ lastWorkspaceStartAlertAt: Date.now() });
     const lang = await getAlertLocale();
@@ -1010,7 +1012,6 @@ async function checkWorkspaceTimerAlerts() {
   }
 
   // Stop-timer / EOD reminder: timer still running after 8h 5m (once per day)
-  const totalHours = timesheet?.totalDecimal || 0;
   if (
     activeTimer &&
     totalHours >= STOP_TIMER_THRESHOLD_HOURS &&

@@ -1,9 +1,9 @@
 // Workspace EOD / Teams integration module
 
 const DEFAULT_EOD_MESSAGES = [
-  "Good Morning.",
-  "Going For Break.",
-  "Back from Break.",
+  "Good Morning",
+  "Going For Break",
+  "Back from Break",
   "Leaving for the day",
   "Done for today, see you tomorrow!",
 ];
@@ -750,22 +750,22 @@ async function computeSmartEodSuggestion(reason) {
 
   if (reason === "timer_start") {
     if (!inOutArray.length || !stats || stats.effectiveSeconds < 60) {
-      return msg(0, "Good Morning.");
+      return msg(0, "Good Morning");
     }
-    return msg(2, "Back from Break.");
+    return msg(2, "Back from Break");
   }
 
   if (reason === "timer_stop") {
     if (stats && stats.effectiveSeconds >= EIGHT_HOURS_SECONDS) {
       return msg(3, "Leaving for the day");
     }
-    return msg(1, "Going For Break.");
+    return msg(1, "Going For Break");
   }
 
   if (!inOutArray.length) {
     const now = new Date();
     if (now.getHours() < 10) {
-      return msg(0, "Good Morning.");
+      return msg(0, "Good Morning");
     }
     return msg(3, "Leaving for the day");
   }
@@ -777,14 +777,14 @@ async function computeSmartEodSuggestion(reason) {
   const now = new Date();
 
   if (stats.lastSwipeType === "OUT" && stats.minutesSinceLastSwipe < 30) {
-    return msg(2, "Back from Break.");
+    return msg(2, "Back from Break");
   }
 
   if (
     stats.lastSwipeType === "IN" &&
     stats.effectiveSeconds < EIGHT_HOURS_SECONDS
   ) {
-    return msg(1, "Going For Break.");
+    return msg(1, "Going For Break");
   }
 
   if (
