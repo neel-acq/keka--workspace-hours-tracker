@@ -725,7 +725,7 @@ function updateBadgeCountdown() {
 
         const targetTime = new Date(data.targetGrossTime);
         const now = new Date();
-        
+
         // If target gross time is from a previous day, clear stale badge
         if (targetTime.toDateString() !== now.toDateString()) {
             chrome.action.setBadgeText({ text: '' });
@@ -900,7 +900,7 @@ async function fetchAttendanceFromAPI() {
             lastScrapeTime: new Date().toISOString()
         });
 
-        syncAttendanceToCloud(token).catch(() => {});
+        syncAttendanceToCloud(token).catch(() => { });
 
         return {
             success: true,

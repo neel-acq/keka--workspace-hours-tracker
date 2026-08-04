@@ -119,7 +119,7 @@ async function promptEodModal(tabId, suggestedMessage, reason = "timer_stop") {
     chrome.storage.local.set({ workspaceStopAlertSentDate: todayKey });
   }
 
-  ensureRequiredCredentials("eod_modal").catch(() => {});
+  ensureRequiredCredentials("eod_modal").catch(() => { });
 
   const suggestion = suggestedMessage || (await computeSmartEodSuggestion(reason));
   const config = {
@@ -140,14 +140,14 @@ async function promptEodModal(tabId, suggestedMessage, reason = "timer_stop") {
       reason,
       suggestedMessage: suggestion,
     })
-    .catch(() => {});
+    .catch(() => { });
 }
 
 function initEodModule() {
   const eodLog =
     typeof createLogger === "function"
       ? createLogger("[EOD]")
-      : { log() {}, warn() {} };
+      : { log() { }, warn() { } };
 
   // MV3: observe only — no blocking return, no extraHeaders (both break registration).
   chrome.webRequest.onBeforeSendHeaders.addListener(
@@ -307,7 +307,7 @@ async function refreshTeamsTokenIfNeeded() {
     setTimeout(async () => {
       const data = await chrome.storage.local.get({ teamsTokenExpiry: 0 });
       if (data.teamsTokenExpiry > Date.now()) {
-        chrome.tabs.remove(tabId).catch(() => {});
+        chrome.tabs.remove(tabId).catch(() => { });
       }
     }, 120000);
   }
@@ -566,10 +566,17 @@ async function fetchTeamsGroups() {
   const config = await chrome.storage.local.get({
     teamsSkypeToken: "",
     teamsTokenExpiry: 0,
+    teamsGroupsCache: null,
+    teamsGroupsCacheTime: 0
   });
 
   if (!config.teamsSkypeToken || Date.now() > config.teamsTokenExpiry) {
     return { success: false, error: "Teams token missing or expired" };
+  }
+
+  // Use cache if it's less than 1 hour old (3600000 ms)
+  if (config.teamsGroupsCache && config.teamsGroupsCacheTime > Date.now() - 3600000) {
+    return { success: true, groups: config.teamsGroupsCache };
   }
 
   try {
@@ -586,6 +593,12 @@ async function fetchTeamsGroups() {
     const groups = (data.conversations || [])
       .filter((conv) => conv.id && conv.threadProperties?.topic)
       .map((conv) => ({ id: conv.id, name: conv.threadProperties.topic }));
+
+    // Save to cache
+    await chrome.storage.local.set({
+      teamsGroupsCache: groups,
+      teamsGroupsCacheTime: Date.now()
+    });
 
     return { success: true, groups };
   } catch (error) {

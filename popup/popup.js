@@ -234,6 +234,47 @@ function parseKekaTime(timeStr) {
     return null;
 }
 
+// Helper: Calculate overlap with strict 1 PM - 2 PM break
+function calculateStrictBreakOverlapSeconds(validSwipes) {
+    let overlapSeconds = 0;
+    const segments = [];
+    
+    for (let i = 0; i < validSwipes.length; i++) {
+        const swipe = validSwipes[i];
+        const swipeTime = parseKekaTime(swipe.time);
+        if (!swipeTime) continue;
+
+        if (swipe.type === 'IN') {
+            if (i + 1 < validSwipes.length && validSwipes[i + 1].type === 'OUT') {
+                const outTime = parseKekaTime(validSwipes[i + 1].time);
+                if (outTime) segments.push({ start: swipeTime, end: outTime });
+            }
+        }
+    }
+    const lastSwipe = validSwipes[validSwipes.length - 1];
+    if (lastSwipe && lastSwipe.type === 'IN') {
+        const lastInTime = parseKekaTime(lastSwipe.time);
+        if (lastInTime) segments.push({ start: lastInTime, end: new Date() });
+    }
+
+    if (segments.length > 0) {
+        const baseDate = segments[0].start;
+        const onePM = new Date(baseDate);
+        onePM.setHours(13, 0, 0, 0);
+        const twoPM = new Date(baseDate);
+        twoPM.setHours(14, 0, 0, 0);
+
+        for (const seg of segments) {
+            if (seg.end > onePM && seg.start < twoPM) {
+                const overlapStart = new Date(Math.max(seg.start, onePM));
+                const overlapEnd = new Date(Math.min(seg.end, twoPM));
+                overlapSeconds += (overlapEnd - overlapStart) / 1000;
+            }
+        }
+    }
+    return overlapSeconds;
+}
+
 // Display data from IN/OUT array
 function displayDataFromArray(inOutArray, todayEntry = null) {
     if (!inOutArray || inOutArray.length === 0) {
@@ -288,6 +329,10 @@ function displayDataFromArray(inOutArray, todayEntry = null) {
         }
     }
 
+    const strictBreakOverlapSeconds = calculateStrictBreakOverlapSeconds(validSwipes);
+    totalEffectiveSeconds = Math.max(0, totalEffectiveSeconds - strictBreakOverlapSeconds);
+    totalBreakSeconds += strictBreakOverlapSeconds;
+
     displayData(
         firstIn ? firstIn.toISOString() : null,
         lastOut ? lastOut.toISOString() : null,
@@ -331,12 +376,14 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
 
     const effectiveHours = Math.floor(displayEffectiveSeconds / 3600);
     const effectiveMinutes = Math.floor((displayEffectiveSeconds % 3600) / 60);
-    document.getElementById('effectiveHours').textContent = `${effectiveHours}h ${effectiveMinutes}m`;
+    const effectiveSecs = Math.floor(displayEffectiveSeconds % 60);
+    document.getElementById('effectiveHours').textContent = `${effectiveHours}h ${effectiveMinutes}m ${effectiveSecs}s`;
 
     const displayBreakSeconds = breakSeconds || 0;
     const breakHours = Math.floor(displayBreakSeconds / 3600);
     const breakMinutes = Math.floor((displayBreakSeconds % 3600) / 60);
-    document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m`;
+    const breakSecs = Math.floor(displayBreakSeconds % 60);
+    document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m ${breakSecs}s`;
 
     let displayGrossSeconds;
     if (grossSecondsOverride != null) {
@@ -350,7 +397,8 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
 
     const grossHours = Math.floor(displayGrossSeconds / 3600);
     const grossMinutes = Math.floor((displayGrossSeconds % 3600) / 60);
-    document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m`;
+    const grossSecs = Math.floor(displayGrossSeconds % 60);
+    document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m ${grossSecs}s`;
 
     const nineHoursInSeconds = 9 * 60 * 60;
     const isNineHoursComplete = displayEffectiveSeconds >= nineHoursInSeconds;
@@ -433,9 +481,9 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
 function displayNoKekaData() {
     document.getElementById('inTime').textContent = '--:--:--';
     document.getElementById('outTime').textContent = '--:--:--';
-    document.getElementById('grossHours').textContent = '--h --m';
-    document.getElementById('effectiveHours').textContent = '--h --m';
-    document.getElementById('breakTime').textContent = '--h --m';
+    document.getElementById('grossHours').textContent = '--h --m --s';
+    document.getElementById('effectiveHours').textContent = '--h --m --s';
+    document.getElementById('breakTime').textContent = '--h --m --s';
     document.getElementById('exitTime').textContent = '--:--:--';
     document.getElementById('remainingTime').textContent = '--:--:--';
     document.getElementById('statusText').textContent = t('status_no_data');
@@ -728,21 +776,32 @@ function startCountdown() {
                 }
             }
 
+            const strictBreakOverlapSeconds = calculateStrictBreakOverlapSeconds(validSwipes);
+            totalEffectiveSeconds = Math.max(0, totalEffectiveSeconds - strictBreakOverlapSeconds);
+            totalBreakSeconds += strictBreakOverlapSeconds;
+
             if (firstInTime) {
                 // Check if entry was before 10 AM
                 const tenAM = new Date(firstInTime);
                 tenAM.setHours(10, 0, 0, 0);
                 const isEarlyEntry = firstInTime < tenAM;
 
-                // Calculate target exit time based on entry time
+                // Calculate target exit time based on entry time, 8h rule and actual breaks
                 let exitTime;
+                const requiredEffectiveMs = 8 * 60 * 60 * 1000;
+                const breakMs = totalBreakSeconds * 1000;
+                const targetWithActualBreak = new Date(firstInTime.getTime() + requiredEffectiveMs + breakMs);
+
                 if (isEarlyEntry) {
-                    // If entered before 10 AM, target exit is 7 PM
-                    exitTime = new Date(firstInTime);
-                    exitTime.setHours(19, 0, 0, 0); // 7 PM
+                    // If entered before 10 AM, target exit is 7 PM, extended if break is long
+                    const sevenPm = new Date(firstInTime);
+                    sevenPm.setHours(19, 0, 0, 0); // 7 PM
+                    exitTime = new Date(Math.max(sevenPm.getTime(), targetWithActualBreak.getTime()));
                 } else {
-                    // If entered after 10 AM, use 9-hour rule
-                    exitTime = new Date(firstInTime.getTime() + 9 * 60 * 60 * 1000);
+                    // If entered after 10 AM, use 9-hour rule base, extended if break > 1h
+                    const oneHourBreakMs = 60 * 60 * 1000;
+                    const targetWithStandardBreak = new Date(firstInTime.getTime() + requiredEffectiveMs + oneHourBreakMs);
+                    exitTime = new Date(Math.max(targetWithStandardBreak.getTime(), targetWithActualBreak.getTime()));
                 }
 
                 const now = new Date();
@@ -769,15 +828,18 @@ function startCountdown() {
 
                 const grossHours = Math.floor(currentGrossSeconds / 3600);
                 const grossMinutes = Math.floor((currentGrossSeconds % 3600) / 60);
-                document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m`;
+                const grossSecs = Math.floor(currentGrossSeconds % 60);
+                document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m ${grossSecs}s`;
 
                 const effectiveHours = Math.floor(totalEffectiveSeconds / 3600);
                 const effectiveMinutes = Math.floor((totalEffectiveSeconds % 3600) / 60);
-                document.getElementById('effectiveHours').textContent = `${effectiveHours}h ${effectiveMinutes}m`;
+                const effectiveSecs = Math.floor(totalEffectiveSeconds % 60);
+                document.getElementById('effectiveHours').textContent = `${effectiveHours}h ${effectiveMinutes}m ${effectiveSecs}s`;
 
                 const breakHours = Math.floor(totalBreakSeconds / 3600);
                 const breakMinutes = Math.floor((totalBreakSeconds % 3600) / 60);
-                document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m`;
+                const breakSecs = Math.floor(totalBreakSeconds % 60);
+                document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m ${breakSecs}s`;
 
                 const nineHoursInSeconds = 9 * 60 * 60;
                 const isComplete = totalEffectiveSeconds >= nineHoursInSeconds;
