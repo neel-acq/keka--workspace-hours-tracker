@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,24 +8,40 @@
   <link rel="stylesheet" href="popup.css">
   <script src="languages.js"></script>
 </head>
+
 <body>
   <div class="container">
     <!-- Navigation Bar -->
     <div class="navbar">
       <button class="nav-btn active" data-page="home">
-        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z"/></svg></span>
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z" />
+          </svg></span>
         <span class="nav-label" data-i18n="nav_dashboard">Keka</span>
       </button>
       <button class="nav-btn" data-page="workspace">
-        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></span>
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <rect x="2" y="7" width="20" height="14" rx="2" />
+            <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" />
+          </svg></span>
         <span class="nav-label" data-i18n="nav_workspace">Workspace</span>
       </button>
       <button class="nav-btn" data-page="settings">
-        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+          </svg></span>
         <span class="nav-label" data-i18n="nav_settings">Settings</span>
       </button>
       <button id="themeToggle" class="nav-btn theme-btn">
-        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+          </svg></span>
         <span class="nav-label" data-i18n="nav_theme">Theme</span>
       </button>
     </div>
@@ -35,63 +52,26 @@
         <h1 class="page-title" data-i18n="page_title">Today's Attendance</h1>
         <p class="page-subtitle" data-i18n="page_subtitle">Track your hours and plan your exit</p>
       </div>
-    
+
       <!-- Main Data Display -->
       <div class="data-section" id="dataSection">
-        <div class="status-card">
-          <div class="status-indicator" id="statusIndicator">
-            <span id="statusText">No data available</span>
-          </div>
-        </div>
-        
-        <div class="time-grid">
-          <div class="time-item">
-            <span class="label" data-i18n="label_first_in">First IN</span>
-            <span class="value" id="inTime">--:--:--</span>
-            <span class="early-entry-badge" id="earlyEntryBadge" style="display: none;">Early Bird</span>
-          </div>
-          
-          <div class="time-item">
-            <span class="label" data-i18n="label_last_out">Last OUT</span>
-            <span class="value" id="outTime">--:--:--</span>
-          </div>
-          
-          <div class="time-item">
-            <span class="label" data-i18n="label_gross_hours">Gross Hours</span>
-            <span class="value highlight" id="grossHours">--h --m</span>
-          </div>
-          
-          <div class="time-item">
-            <span class="label" data-i18n="label_effective_hours">Effective Hours</span>
-            <span class="value highlight" id="effectiveHours">--h --m</span>
-          </div>
-          
-          <div class="time-item">
-            <span class="label" data-i18n="label_break_time">Break Time</span>
-            <span class="value" id="breakTime">--h --m</span>
-          </div>
-          
-          <div class="time-item">
-            <span class="label" id="targetExitLabel" data-i18n="label_target_exit">Target Exit</span>
-            <span class="value highlight" id="exitTime">--:--:--</span>
-          </div>
 
-          <div class="time-item">
-            <span class="label" id="workspaceTimerLabel" data-i18n="label_workspace_total">Workspace Timer</span>
-            <span class="value highlight" id="workspaceTotalLogged">--:--</span>
+        <!-- Time Left - Full Width Countdown Banner -->
+        <div class="countdown-banner">
+          <div class="countdown-content">
+            <div class="countdown-inner">
+              <div class="countdown-label-wrapper">
+                <span class="countdown-emoji">⏳</span>
+                <span class="countdown-label" data-i18n="countdown_title">Time Remaining</span>
+              </div>
+              <div class="countdown-timer" id="remainingTime">--:--:--</div>
+              <div class="countdown-subtitle" id="countdownSubtitle" data-i18n="countdown_subtitle">Until your target
+                exit time</div>
+            </div>
           </div>
-          
-          <div class="time-item">
-            <span class="label" id="workspaceRemainingLabel" data-i18n="label_workspace_remaining">Remaining Workspace (8h)</span>
-            <span class="value highlight" id="workspaceRemainingTime">--h --m</span>
-          </div>
-          
-          <!-- Don’t remove it. I also don’t want any AI code updates or changes made to the relevant code. -->
-          <!-- <div class="time-item">
-            <span class="label">✨ Sweet Spot (8h)</span>
-            <span class="value" id="effectiveEnd">--:--:--</span>
-          </div>
-           -->
+          <!-- <div class="countdown-progress">
+            <div class="countdown-progress-bar" id="progressBar"></div>
+          </div> -->
         </div>
 
         <!-- Half-Day Leave Banner -->
@@ -102,23 +82,62 @@
             <span class="leave-subtitle" id="leaveSubtitle">--</span>
           </div>
         </div>
-        
-        <!-- Time Left - Full Width Countdown Banner -->
-        <div class="countdown-banner">
-          <div class="countdown-content">
-            <div class="countdown-inner">
-              <div class="countdown-label-wrapper">
-                <span class="countdown-emoji">⏳</span>
-                <span class="countdown-label" data-i18n="countdown_title">Time Remaining</span>
-              </div>
-              <div class="countdown-timer" id="remainingTime">--:--:--</div>
-              <div class="countdown-subtitle" id="countdownSubtitle" data-i18n="countdown_subtitle">Until your target exit time</div>
-            </div>
+
+
+        <div class="time-grid">
+          <div class="time-item">
+            <span class="label" data-i18n="label_first_in">First IN</span>
+            <span class="value" id="inTime">--:--:--</span>
+            <span class="early-entry-badge" id="earlyEntryBadge" style="display: none;">Early Bird</span>
           </div>
-          <!-- <div class="countdown-progress">
-            <div class="countdown-progress-bar" id="progressBar"></div>
-          </div> -->
+
+          <div class="time-item">
+            <span class="label" data-i18n="label_last_out">Last OUT</span>
+            <span class="value" id="outTime">--:--:--</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" data-i18n="label_gross_hours">Gross Hours</span>
+            <span class="value highlight" id="grossHours">--h --m</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" data-i18n="label_effective_hours">Effective Hours</span>
+            <span class="value highlight" id="effectiveHours">--h --m</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" data-i18n="label_break_time">Break Time</span>
+            <span class="value" id="breakTime">--h --m</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" id="targetExitLabel" data-i18n="label_target_exit">Target Exit</span>
+            <span class="value highlight" id="exitTime">--:--:--</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" id="workspaceTimerLabel" data-i18n="label_workspace_total">Workspace Timer</span>
+            <span class="value highlight" id="workspaceTotalLogged">--:--</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" id="workspaceRemainingLabel" data-i18n="label_workspace_remaining">Remaining Workspace
+              (8h)</span>
+            <span class="value highlight" id="workspaceRemainingTime">--h --m</span>
+          </div>
+
+          <!-- Don’t remove it. I also don’t want any AI code updates or changes made to the relevant code. -->
+          <!-- <div class="time-item">
+            <span class="label">✨ Sweet Spot (8h)</span>
+            <span class="value" id="effectiveEnd">--:--:--</span>
+          </div>
+           -->
         </div>
+
+
+
+
 
         <!-- IN/OUT List -->
         <div class="inout-list-section" id="inoutListSection" style="display: none;">
@@ -133,7 +152,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- Sync Section -->
       <div class="sync-section">
         <div class="sync-card">
@@ -147,10 +166,11 @@
           <div id="scrapeStatus" class="scrape-status"></div>
         </div>
       </div>
-      
+
       <!-- Footer -->
       <div class="footer">
-        <p class="made-by"><span data-i18n="footer_made_by">Crafted by</span> <span class="author" data-i18n="footer_author">Neel Patel</span></p>
+        <p class="made-by"><span data-i18n="footer_made_by">Crafted by</span> <span class="author"
+            data-i18n="footer_author">Neel Patel</span></p>
       </div>
     </div>
 
@@ -171,8 +191,10 @@
           <div class="card-body">
             <div id="timesheetConnectPrompt" class="timesheet-connect" style="display: none;">
               <p class="card-text" data-i18n="ws_timesheet_no_session">Open Workspace to connect</p>
-              <p class="connection-sub" data-i18n="ws_timesheet_no_session_hint">Log in to Workspace to sync your timesheet.</p>
-              <button type="button" id="timesheetOpenWorkspaceBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_workspace">Open Workspace</button>
+              <p class="connection-sub" data-i18n="ws_timesheet_no_session_hint">Log in to Workspace to sync your
+                timesheet.</p>
+              <button type="button" id="timesheetOpenWorkspaceBtn" class="btn btn-secondary btn-sm"
+                data-i18n="ws_open_workspace">Open Workspace</button>
             </div>
             <div id="timesheetData">
               <div class="timesheet-grid">
@@ -202,8 +224,10 @@
               -->
               <p class="connection-sub" id="timesheetSyncTime"></p>
               <div class="btn-row">
-                <button type="button" id="refreshTimesheetBtn" class="btn btn-secondary btn-sm" data-i18n="ws_timesheet_refresh">Refresh</button>
-                <button type="button" id="timesheetOpenTasksBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_workspace">Open Workspace</button>
+                <button type="button" id="refreshTimesheetBtn" class="btn btn-secondary btn-sm"
+                  data-i18n="ws_timesheet_refresh">Refresh</button>
+                <button type="button" id="timesheetOpenTasksBtn" class="btn btn-secondary btn-sm"
+                  data-i18n="ws_open_workspace">Open Workspace</button>
               </div>
             </div>
           </div>
@@ -225,9 +249,12 @@
             </div>
             <p class="card-text" id="workspaceConfigText"></p>
             <div class="btn-row">
-              <button type="button" id="openTeamsBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_teams">Open Teams</button>
-              <button type="button" id="openWorkspaceBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_workspace">Open Workspace</button>
-              <button type="button" id="refreshTeamsTokenBtn" class="btn btn-secondary btn-sm" data-i18n="ws_refresh_token">Refresh Token</button>
+              <button type="button" id="openTeamsBtn" class="btn btn-secondary btn-sm" data-i18n="ws_open_teams">Open
+                Teams</button>
+              <button type="button" id="openWorkspaceBtn" class="btn btn-secondary btn-sm"
+                data-i18n="ws_open_workspace">Open Workspace</button>
+              <button type="button" id="refreshTeamsTokenBtn" class="btn btn-secondary btn-sm"
+                data-i18n="ws_refresh_token">Refresh Token</button>
             </div>
           </div>
         </div>
@@ -246,11 +273,13 @@
               <p id="kekaCompanyName" class="card-text" style="display: none; margin-top: -8px;"></p>
               <p id="teamsFromIdAuto" class="teams-from-id-auto" style="display: none;"></p>
               <div id="teamsFromIdFetchRow" class="btn-row teams-from-id-fetch" style="display: none;">
-                <button type="button" id="fetchTeamsUserIdBtn" class="btn btn-secondary btn-sm" data-i18n="ws_fetch_user_id">Fetch User ID</button>
+                <button type="button" id="fetchTeamsUserIdBtn" class="btn btn-secondary btn-sm"
+                  data-i18n="ws_fetch_user_id">Fetch User ID</button>
               </div>
               <div class="form-group" id="teamsFromIdGroup" style="display: none;">
                 <label for="teamsFromId" data-i18n="ws_from_id">Teams User ID</label>
-                <p class="card-text" data-i18n="ws_from_id_manual_hint">Auto-detect failed. Enter your Teams User ID manually.</p>
+                <p class="card-text" data-i18n="ws_from_id_manual_hint">Auto-detect failed. Enter your Teams User ID
+                  manually.</p>
                 <input type="text" id="teamsFromId" class="form-input" placeholder="8:live:.cid.xxxxx">
               </div>
               <div class="form-group">
@@ -259,7 +288,8 @@
                   <option value="" data-i18n="ws_groups_loading">Loading groups...</option>
                 </select>
               </div>
-              <button type="submit" class="btn btn-primary btn-block" data-i18n="ws_save_config">Save Configuration</button>
+              <button type="submit" class="btn btn-primary btn-block" data-i18n="ws_save_config">Save
+                Configuration</button>
             </form>
           </div>
         </div>
@@ -275,7 +305,8 @@
               <span class="suggestion-label" data-i18n="ws_suggested">Suggested message</span>
               <p class="suggestion-text" id="smartSuggestionText">--</p>
             </div>
-            <button type="button" id="sendSuggestedBtn" class="btn btn-primary btn-block" data-i18n="ws_send_suggested">Send Suggested Message</button>
+            <button type="button" id="sendSuggestedBtn" class="btn btn-primary btn-block"
+              data-i18n="ws_send_suggested">Send Suggested Message</button>
           </div>
         </div>
 
@@ -287,7 +318,8 @@
           <div class="card-body">
             <div id="quickEodList" class="quick-eod-list"></div>
             <div class="custom-eod-row">
-              <input type="text" id="customEodInput" class="form-input" data-i18n-placeholder="ws_custom_placeholder" placeholder="Custom message...">
+              <input type="text" id="customEodInput" class="form-input" data-i18n-placeholder="ws_custom_placeholder"
+                placeholder="Custom message...">
               <button type="button" id="sendCustomEodBtn" class="btn btn-secondary" data-i18n="ws_send">Send</button>
             </div>
             <div id="eodSendStatus" class="workspace-status"></div>
@@ -309,7 +341,8 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
-            <p class="card-text" data-i18n="ws_timer_alerts_desc">Weekday reminders to start/stop timer (10am–9pm; no start alerts 1–2pm)</p>
+            <p class="card-text" data-i18n="ws_timer_alerts_desc">Weekday reminders to start/stop timer (10am–9pm; no
+              start alerts 1–2pm)</p>
             <div class="form-group">
               <label for="workspaceAlertInterval" data-i18n="ws_alert_interval">Alert check interval</label>
               <select id="workspaceAlertInterval" class="form-input">
@@ -331,8 +364,10 @@
             <p class="card-text" data-i18n="ws_presets_desc">Edit your preset messages:</p>
             <div id="presetMessagesList" class="preset-messages-list"></div>
             <div class="btn-row">
-              <button type="button" id="addPresetBtn" class="btn btn-secondary btn-sm" data-i18n="ws_add_preset">Add Preset</button>
-              <button type="button" id="savePresetsBtn" class="btn btn-primary btn-sm" data-i18n="ws_save_presets">Save Presets</button>
+              <button type="button" id="addPresetBtn" class="btn btn-secondary btn-sm" data-i18n="ws_add_preset">Add
+                Preset</button>
+              <button type="button" id="savePresetsBtn" class="btn btn-primary btn-sm" data-i18n="ws_save_presets">Save
+                Presets</button>
             </div>
           </div>
         </div>
@@ -394,9 +429,12 @@
             </div>
             <div class="card-body">
               <p class="card-text">
-                <strong data-i18n="about_version">Version:</strong> <span data-i18n="about_version_text">1.2.0</span><br>
-                <strong data-i18n="about_purpose">Purpose:</strong> <span data-i18n="about_purpose_text">Workplace hours and EOD assistant</span><br>
-                <strong data-i18n="about_features">Features:</strong> <span data-i18n="about_features_text">Keka sync, Teams EOD, Smart suggestions, Notifications</span><br>
+                <strong data-i18n="about_version">Version:</strong> <span
+                  data-i18n="about_version_text">1.2.0</span><br>
+                <strong data-i18n="about_purpose">Purpose:</strong> <span data-i18n="about_purpose_text">Workplace hours
+                  and EOD assistant</span><br>
+                <strong data-i18n="about_features">Features:</strong> <span data-i18n="about_features_text">Keka sync,
+                  Teams EOD, Smart suggestions, Notifications</span><br>
                 <strong data-i18n="about_status">Status:</strong> <span data-i18n="about_status_text">Active</span>
               </p>
             </div>
@@ -482,8 +520,8 @@
               </div>
               <div class="preference-item">
                 <div class="preference-label">
-                <span class="preference-text" data-i18n="pref_funny_text">Funny Text Mode</span>
-              </div>
+                  <span class="preference-text" data-i18n="pref_funny_text">Funny Text Mode</span>
+                </div>
                 <label class="toggle-switch">
                   <input type="checkbox" id="funnyTextToggle" checked>
                   <span class="toggle-slider"></span>
@@ -535,7 +573,7 @@
       </div>
     </div>
   </div>
-  
+
   <script src="../config.js"></script>
   <script src="../shared/logger.js"></script>
   <script src="../shared/attendance-date.js"></script>
@@ -543,4 +581,5 @@
   <script src="workspace.js"></script>
   <script src="popup.js"></script>
 </body>
+
 </html>

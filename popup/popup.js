@@ -123,14 +123,28 @@ function toggleTheme() {
 
 // Load workspace total logged hours on Keka dashboard
 function loadWorkspaceDashboardTotal() {
-    chrome.storage.local.get(['workspaceTimesheet', 'workspaceActiveTimer'], (data) => {
+    chrome.storage.local.get(['workspaceTimesheet', 'workspaceActiveTimer', 'scrapedAttendance'], (data) => {
         const totalEl = document.getElementById('workspaceTotalLogged');
         const remEl = document.getElementById('workspaceRemainingTime');
         const labelEl = document.getElementById('workspaceTimerLabel');
+        const remLabelEl = document.getElementById('workspaceRemainingLabel');
         if (!totalEl) return;
+
+        // Detect half-day leave to adjust target hours
+        let targetHours = 8;
+        const todayEntry = data.scrapedAttendance ? resolveTodayEntry(data.scrapedAttendance) : null;
+        const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+        if (hasLeave) {
+            targetHours = 4;
+        }
 
         const total = data.workspaceTimesheet?.totalHours;
         totalEl.textContent = total || '--:--';
+
+        // Update remaining label to reflect target hours
+        if (remLabelEl) {
+            remLabelEl.textContent = `Remaining Workspace (${targetHours}h)`;
+        }
 
         if (remEl) {
             if (total && typeof total === 'string') {
@@ -139,7 +153,7 @@ function loadWorkspaceDashboardTotal() {
                     const hours = parseInt(match[1], 10);
                     const mins = parseInt(match[2], 10);
                     const loggedMins = hours * 60 + mins;
-                    const targetMins = 8 * 60; // 8 hours (480 mins)
+                    const targetMins = targetHours * 60;
                     if (loggedMins >= targetMins) {
                         remEl.textContent = '0h 0m';
                     } else {
@@ -380,17 +394,20 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
     if (outDate) {
         document.getElementById('outTime').textContent = formatTime(outDate);
 
-        if (isNineHoursComplete) {
-            document.getElementById('statusText').textContent = t('status_accomplished');
-            document.getElementById('statusIndicator').className = 'status-indicator ok';
-        } else {
-            document.getElementById('statusText').textContent = t('status_grinding');
-            document.getElementById('statusIndicator').className = 'status-indicator pending';
+        const statusTextEl = document.getElementById('statusText');
+        const statusIndicatorEl = document.getElementById('statusIndicator');
+        if (statusTextEl) {
+            statusTextEl.textContent = isNineHoursComplete ? t('status_accomplished') : t('status_grinding');
+        }
+        if (statusIndicatorEl) {
+            statusIndicatorEl.className = isNineHoursComplete ? 'status-indicator ok' : 'status-indicator pending';
         }
     } else {
         document.getElementById('outTime').textContent = 'Still Working...';
-        document.getElementById('statusText').textContent = t('status_ticking');
-        document.getElementById('statusIndicator').className = 'status-indicator pending';
+        const statusTextEl = document.getElementById('statusText');
+        const statusIndicatorEl = document.getElementById('statusIndicator');
+        if (statusTextEl) statusTextEl.textContent = t('status_ticking');
+        if (statusIndicatorEl) statusIndicatorEl.className = 'status-indicator pending';
     }
 
     const requiredEffectiveHours = hasLeave ? 4 : 8;
@@ -462,7 +479,8 @@ function displayNoKekaData(todayEntry = null) {
     document.getElementById('breakTime').textContent = '--h --m --s';
     document.getElementById('exitTime').textContent = '--:--:--';
     document.getElementById('remainingTime').textContent = '--:--:--';
-    document.getElementById('statusText').textContent = t('status_no_data');
+    const statusTextEl = document.getElementById('statusText');
+    if (statusTextEl) statusTextEl.textContent = t('status_no_data');
 
     const statusBanner = document.getElementById('statusBanner');
     const statusIcon = document.getElementById('statusIcon');
@@ -810,12 +828,15 @@ function startCountdown() {
 
             updateRemainingTime(targetExitTime, lastOutTime, isComplete, isEarlyEntry, hasLeave, isFirstHalf);
 
-            if (lastOutTime && isComplete) {
-                document.getElementById('statusText').textContent = t('status_accomplished');
-                document.getElementById('statusIndicator').className = 'status-indicator ok';
-            } else if (lastOutTime && !isComplete) {
-                document.getElementById('statusText').textContent = t('status_grinding');
-                document.getElementById('statusIndicator').className = 'status-indicator pending';
+            if (lastOutTime) {
+                const statusTextEl = document.getElementById('statusText');
+                const statusIndicatorEl = document.getElementById('statusIndicator');
+                if (statusTextEl) {
+                    statusTextEl.textContent = isComplete ? t('status_accomplished') : t('status_grinding');
+                }
+                if (statusIndicatorEl) {
+                    statusIndicatorEl.className = isComplete ? 'status-indicator ok' : 'status-indicator pending';
+                }
             }
         });
     }, 1000);
