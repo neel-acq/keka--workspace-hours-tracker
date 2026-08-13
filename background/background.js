@@ -3,6 +3,7 @@ importScripts('../config.js');
 importScripts('../shared/logger.js');
 importScripts('../shared/api-crypto.js');
 importScripts('../shared/attendance-date.js');
+importScripts('../shared/countdown-calc.js');
 importScripts('api-client.js');
 importScripts('api-sync.js');
 importScripts('eod.js');
@@ -183,66 +184,61 @@ function handleScrapedData(data) {
     }
 }
 
-// Parse Keka time in background
+// Parse Keka time in background — delegates to shared parseSwipeTime
 function parseKekaTimeInBackground(timeStr) {
-    if (!timeStr || timeStr === 'MISSING') return null;
-
-    const today = new Date();
-    const timeMatch = timeStr.match(/(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)/i);
-
-    if (timeMatch) {
-        let hours = parseInt(timeMatch[1]);
-        const minutes = parseInt(timeMatch[2]);
-        const seconds = parseInt(timeMatch[3]);
-        const period = timeMatch[4].toUpperCase();
-
-        if (period === 'PM' && hours !== 12) hours += 12;
-        if (period === 'AM' && hours === 12) hours = 0;
-
-        today.setHours(hours, minutes, seconds, 0);
-        return today;
-    }
-
-    return null;
+    return parseSwipeTime(timeStr);
 }
 
 // Handle IN time recording
 function handleInTime(inTime) {
     const inDate = new Date(inTime);
 
-    // Check if entry was before 10 AM
-    const tenAM = new Date(inDate);
-    tenAM.setHours(10, 0, 0, 0);
-    const isEarlyEntry = inDate < tenAM;
+    // Try to compute exit time from full attendance data (break-aware)
+    chrome.storage.local.get(['scrapedAttendance'], (data) => {
+        let exitTime;
+        const todayEntry = data.scrapedAttendance ? resolveTodayEntry(data.scrapedAttendance) : null;
+        const state = computeCountdownState(todayEntry);
 
-    // Calculate exit time based on entry time and 7 PM rule
-    let exitTime;
-    if (isEarlyEntry) {
-        // If entered before 10 AM, target exit is 7 PM
-        exitTime = new Date(inDate);
-        exitTime.setHours(19, 0, 0, 0); // 7 PM
-    } else {
-        // If entered after 10 AM, use 9-hour rule
-        exitTime = new Date(inDate.getTime() + 9 * 60 * 60 * 1000);
-    }
+        if (state) {
+            exitTime = state.targetExitTime;
+        } else {
+            // Fallback: no full attendance yet, use simple rule
+            const tenAM = new Date(inDate);
+            tenAM.setHours(10, 0, 0, 0);
+            const isEarlyEntry = inDate < tenAM;
 
-    // Calculate notification time (10 minutes before exit)
-    const notificationTime = new Date(exitTime.getTime() - 10 * 60 * 1000);
+            if (isEarlyEntry) {
+                exitTime = new Date(inDate);
+                exitTime.setHours(19, 0, 0, 0);
+            } else {
+                exitTime = new Date(inDate.getTime() + 9 * 60 * 60 * 1000);
+            }
+        }
 
-    // Store exit time
-    chrome.storage.local.set({ exitTime: exitTime.toISOString() });
+        // Calculate notification time (10 minutes before exit)
+        const notificationTime = new Date(exitTime.getTime() - 10 * 60 * 1000);
 
-    // Clear any existing alarms
-    chrome.alarms.clear('exitReminder');
-
-    // Set alarm for notification
-    const now = new Date();
-    if (notificationTime > now) {
-        const delayInMinutes = (notificationTime - now) / (1000 * 60);
-        chrome.alarms.create('exitReminder', {
-            delayInMinutes: delayInMinutes
+        // Store exit time — this is the canonical target used by badge
+        chrome.storage.local.set({
+            exitTime: exitTime.toISOString(),
+            targetGrossTime: exitTime.toISOString()
         });
-    }
+
+        // Clear any existing alarms
+        chrome.alarms.clear('exitReminder');
+
+        // Set alarm for notification
+        const now = new Date();
+        if (notificationTime > now) {
+            const delayInMinutes = (notificationTime - now) / (1000 * 60);
+            chrome.alarms.create('exitReminder', {
+                delayInMinutes: delayInMinutes
+            });
+        }
+
+        // Refresh badge immediately with new target
+        startBadgeCountdown();
+    });
 
     // Save to history
     saveToHistory(inTime, null);
@@ -297,12 +293,24 @@ function calculateHours(start, end) {
 // Handle alarm (modal alerts)
 chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'exitReminder') {
-        chrome.storage.local.get(['isEarlyEntry'], async (data) => {
+        chrome.storage.local.get(['isEarlyEntry', 'scrapedAttendance'], async (data) => {
             const isEarlyEntry = data.isEarlyEntry || false;
             const lang = await getAlertLocale();
-            const message = isEarlyEntry
+            let message = isEarlyEntry
                 ? alertT('alert_exit_message_early', lang)
                 : alertT('alert_exit_message', lang);
+
+            const todayEntry = data.scrapedAttendance ? resolveTodayEntry(data.scrapedAttendance) : null;
+            const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+            if (hasLeave) {
+                const firstLeave = todayEntry.leaveDetails[0];
+                const isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
+                if (!isFirstHalf) {
+                    message = message.replace('7 PM', '3 PM');
+                    message = message.replace('7 વાગ્યા', '3 વાગ્યા');
+                    message = message.replace('7 बजे', '3 बजे');
+                }
+            }
 
             dispatchTrackerAlert({
                 id: 'exitReminder',
@@ -344,45 +352,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 });
 
-// Calculate effective hours from attendance data
+// Calculate effective hours from attendance data — delegates to shared computeCountdownState
 function calculateEffectiveHours(todayEntry) {
-    if (!todayEntry || !todayEntry.inOutArray) {
-        return 0;
-    }
-
-    const validSwipes = todayEntry.inOutArray.filter(swipe => swipe.time && swipe.time !== 'MISSING');
-    let totalEffectiveSeconds = 0;
-
-    for (let i = 0; i < validSwipes.length; i++) {
-        const swipe = validSwipes[i];
-        const swipeTime = parseKekaTimeInBackground(swipe.time);
-
-        if (!swipeTime) continue;
-
-        if (swipe.type === 'IN') {
-            if (i + 1 < validSwipes.length && validSwipes[i + 1].type === 'OUT') {
-                const outTime = parseKekaTimeInBackground(validSwipes[i + 1].time);
-                if (outTime) {
-                    totalEffectiveSeconds += (outTime - swipeTime) / 1000;
-                }
-            }
-        }
-    }
-
-    // If last swipe is IN, add time until now
-    const lastSwipe = validSwipes[validSwipes.length - 1];
-    if (lastSwipe && lastSwipe.type === 'IN') {
-        const lastInTime = parseKekaTimeInBackground(lastSwipe.time);
-        if (lastInTime) {
-            const now = new Date();
-            totalEffectiveSeconds += (now - lastInTime) / 1000;
-        }
-    }
-
-    return totalEffectiveSeconds / 3600; // Return hours
+    const state = computeCountdownState(todayEntry);
+    if (!state) return 0;
+    return state.totalEffectiveSeconds / 3600; // Return hours
 }
 
-// Check effective hours and send notification when 8h is reached
+// Check effective hours and send notification when 8h (or 4h for leave) is reached
 async function checkEffectiveHoursAndNotify() {
     chrome.storage.local.get(['scrapedAttendance', 'effective8hNotificationSent'], (data) => {
         // Skip if notification already sent today
@@ -396,11 +373,13 @@ async function checkEffectiveHoursAndNotify() {
         }
 
         const todayEntry = resolveTodayEntry(data.scrapedAttendance);
+        const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+        const requiredEffectiveHours = hasLeave ? 4 : 8;
 
         const effectiveHours = calculateEffectiveHours(todayEntry);
 
-        // If effective hours >= 8, send notification
-        if (effectiveHours >= 8) {
+        // If effective hours >= requiredEffectiveHours, send notification
+        if (effectiveHours >= requiredEffectiveHours) {
             // Set flag IMMEDIATELY to prevent race conditions
             chrome.storage.local.set({ effective8hNotificationSent: true }, () => {
                 // Stop monitoring for 8h
@@ -409,12 +388,19 @@ async function checkEffectiveHoursAndNotify() {
                 // Then send notification
                 chrome.storage.local.get(['defaultNotificationMessages'], async (msgData) => {
                     const lang = await getAlertLocale();
-                    const message = msgData.defaultNotificationMessages?.effective
-                        || alertT('alert_effective_title', lang) + '! Great work!';
+                    let title = alertT('alert_effective_title', lang);
+                    let message = msgData.defaultNotificationMessages?.effective
+                        || (title + '! Great work!');
+
+                    if (hasLeave) {
+                        title = title.replace('8', '4');
+                        message = message.replace('8', '4');
+                    }
+
                     dispatchTrackerAlert({
                         id: 'effective_8h',
                         variant: 'info',
-                        title: alertT('alert_effective_title', lang),
+                        title: title,
                         label: alertT('alert_reminder_label', lang),
                         message,
                         actions: [{ id: 'dismiss', label: alertT('alert_dismiss', lang) }]
@@ -425,7 +411,7 @@ async function checkEffectiveHoursAndNotify() {
     });
 }
 
-// Check if target exit conditions are met (for early entries: 7 PM + 8h effective, for late entries: 9h gross + 8h effective)
+// Check if target exit conditions are met
 async function checkTargetExitAndNotify() {
     chrome.storage.local.get(['scrapedAttendance', 'targetGrossTime', 'targetExitNotificationSent', 'isEarlyEntry'], (data) => {
         // Skip if notification already sent today
@@ -445,27 +431,20 @@ async function checkTargetExitAndNotify() {
             return;
         }
 
+        const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+        const requiredEffectiveHours = hasLeave ? 4 : 8;
+
         // Check condition 1: Has target time passed?
         const targetTime = new Date(data.targetGrossTime);
         const now = new Date();
         const targetTimeReached = now >= targetTime;
 
-        // Check condition 2: Has 8 effective hours been completed?
+        // Check condition 2: Has required effective hours been completed?
         const effectiveHours = calculateEffectiveHours(todayEntry);
-        const effectiveHoursComplete = effectiveHours >= 8;
+        const effectiveHoursComplete = effectiveHours >= requiredEffectiveHours;
 
-        // For early entries (before 10 AM): 7 PM + 8h effective
-        // For late entries (after 10 AM): 9h gross + 8h effective
         const isEarlyEntry = data.isEarlyEntry || false;
-
-        let canExit = false;
-        if (isEarlyEntry) {
-            // Early entry: can exit at 7 PM if 8h effective is complete
-            canExit = targetTimeReached && effectiveHoursComplete;
-        } else {
-            // Late entry: can exit after 9h gross if 8h effective is complete
-            canExit = targetTimeReached && effectiveHoursComplete;
-        }
+        const canExit = targetTimeReached && effectiveHoursComplete;
 
         if (canExit) {
             // Set flag IMMEDIATELY to prevent race conditions
@@ -478,10 +457,21 @@ async function checkTargetExitAndNotify() {
                 // Then send notification
                 chrome.storage.local.get(['defaultNotificationMessages'], async (msgData) => {
                     const lang = await getAlertLocale();
-                    const message = msgData.defaultNotificationMessages?.gross
+                    let message = msgData.defaultNotificationMessages?.gross
                         || (isEarlyEntry
                             ? alertT('alert_exit_message_early', lang)
                             : alertT('alert_target_exit_title', lang) + '! You can leave now.');
+
+                    if (hasLeave) {
+                        const firstLeave = todayEntry.leaveDetails[0];
+                        const isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
+                        if (!isFirstHalf) {
+                            message = message.replace('7 PM', '3 PM');
+                            message = message.replace('7 વાગ્યા', '3 વાગ્યા');
+                            message = message.replace('7 बजे', '3 बजे');
+                        }
+                    }
+
                     dispatchTrackerAlert({
                         id: 'target_exit',
                         variant: 'info',
@@ -510,13 +500,19 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 function checkAndSetAlarm() {
-    chrome.storage.local.get(['inTime', 'currentDate', 'outTime'], (data) => {
+    chrome.storage.local.get(['inTime', 'currentDate', 'outTime', 'targetGrossTime'], (data) => {
         const today = new Date().toDateString();
 
         // If IN time exists for today and OUT is not recorded
         if (data.inTime && data.currentDate === today && !data.outTime) {
-            const inDate = new Date(data.inTime);
-            const exitTime = new Date(inDate.getTime() + 9 * 60 * 60 * 1000);
+            let exitTime = null;
+            if (data.targetGrossTime) {
+                exitTime = new Date(data.targetGrossTime);
+            } else {
+                const inDate = new Date(data.inTime);
+                exitTime = new Date(inDate.getTime() + 9 * 60 * 60 * 1000);
+            }
+            
             const notificationTime = new Date(exitTime.getTime() - 10 * 60 * 1000);
             const now = new Date();
 
@@ -696,44 +692,29 @@ function startBadgeCountdown() {
 // Self-schedules the next alarm at the exact moment the countdown
 // crosses the next minute boundary (e.g., 8:17:00 → 8:16:00).
 function updateBadgeCountdown() {
-    chrome.storage.local.get(['targetGrossTime', 'badgeCountdownEnabled', 'targetExitNotificationSent', 'scrapedAttendance'], (data) => {
+    chrome.storage.local.get(['badgeCountdownEnabled', 'targetExitNotificationSent', 'scrapedAttendance'], (data) => {
         // Bail if disabled
         if (data.badgeCountdownEnabled === false) {
             chrome.action.setBadgeText({ text: '' });
             return;
         }
 
-        if (!data.targetGrossTime) {
-            chrome.action.setBadgeText({ text: '' });
-            return;
-        }
-
-        // Validate that we have today's attendance with an IN time.
-        // If no IN time today (new day, not punched in yet), don't show stale badge.
+        // Compute countdown state LIVE from attendance data — same logic as popup
         const todayEntry = data.scrapedAttendance ? resolveTodayEntry(data.scrapedAttendance) : null;
-        const hasTodayIn = todayEntry && (
-            (todayEntry.inOutArray && todayEntry.inOutArray.some(s => s.type === 'IN' && s.time && s.time !== 'MISSING')) ||
-            (todayEntry.checkIn && todayEntry.checkIn !== 'MISSING')
-        );
+        const state = computeCountdownState(todayEntry);
 
-        if (!hasTodayIn) {
-            // No IN time today — clear badge, don't show stale ✓ or countdown
+        if (!state) {
+            // No valid attendance today — clear badge
             chrome.action.setBadgeText({ text: '' });
             chrome.action.setTitle({ title: 'Keka Hours Tracker' });
             return;
         }
 
-        const targetTime = new Date(data.targetGrossTime);
+        // Keep targetGrossTime in storage in sync for notifications / other consumers
+        chrome.storage.local.set({ targetGrossTime: state.targetExitTime.toISOString() });
+
         const now = new Date();
-
-        // If target gross time is from a previous day, clear stale badge
-        if (targetTime.toDateString() !== now.toDateString()) {
-            chrome.action.setBadgeText({ text: '' });
-            chrome.action.setTitle({ title: 'Keka Hours Tracker' });
-            return;
-        }
-
-        const remainingMs = targetTime - now;
+        const remainingMs = state.targetExitTime - now;
 
         // If target exit notification was already sent or time is up
         if (data.targetExitNotificationSent || remainingMs <= 0) {
@@ -768,12 +749,7 @@ function updateBadgeCountdown() {
         chrome.action.setTitle({ title: tooltipText });
 
         // ── Self-schedule next alarm aligned to minute boundary ──
-        // remainingMs % 60000 = milliseconds until the countdown crosses
-        // the next exact minute (e.g., 8:17:00 → 8:16:00).
-        // This ensures the badge transitions at exactly X:00, not at
-        // some arbitrary offset from the alarm start time.
         const msToNextMinuteBoundary = remainingMs % 60000;
-        // If we're right at a boundary (< 1 s), wait for the NEXT full minute
         const nextAlarmDelayMs = msToNextMinuteBoundary < 1000
             ? msToNextMinuteBoundary + 60000
             : msToNextMinuteBoundary;
@@ -946,7 +922,9 @@ function parseApiEntry(item) {
         late: item.arrivalMessage || null,
         breakDuration: item.breakDurationInHHMM || null,
         totalGrossHours: item.totalGrossHours || 0,
-        totalEffectiveHours: item.totalEffectiveHours || 0
+        totalEffectiveHours: item.totalEffectiveHours || 0,
+        leaveDetails: item.leaveDetails ?? null,
+        isFirstHalfLeave: item.isFirstHalfLeave ?? null
     };
 
     // Format shift times

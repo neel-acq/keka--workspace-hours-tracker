@@ -197,13 +197,14 @@ function loadData() {
                         outTime ? outTime.toISOString() : null,
                         effectiveSeconds,
                         breakSeconds,
-                        grossSeconds
+                        grossSeconds,
+                        todayEntry
                     );
                 } else {
-                    displayNoData();
+                    displayNoData(todayEntry);
                 }
             } else {
-                displayNoData();
+                displayNoData(todayEntry);
             }
         } else {
             displayNoData();
@@ -211,141 +212,44 @@ function loadData() {
     });
 }
 
-// Parse Keka time format to Date object
+// Parse Keka time format — delegates to shared parseSwipeTime
 function parseKekaTime(timeStr) {
-    if (!timeStr || timeStr === 'MISSING') return null;
-
-    const today = new Date();
-    const timeMatch = timeStr.match(/(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)/i);
-
-    if (timeMatch) {
-        let hours = parseInt(timeMatch[1]);
-        const minutes = parseInt(timeMatch[2]);
-        const seconds = parseInt(timeMatch[3]);
-        const period = timeMatch[4].toUpperCase();
-
-        if (period === 'PM' && hours !== 12) hours += 12;
-        if (period === 'AM' && hours === 12) hours = 0;
-
-        today.setHours(hours, minutes, seconds, 0);
-        return today;
-    }
-
-    return null;
+    return parseSwipeTime(timeStr);
 }
 
-// Helper: Calculate overlap with strict 1 PM - 2 PM break
+// Calculate overlap with strict 1 PM - 2 PM break — delegates to shared calcStrictBreakOverlap
 function calculateStrictBreakOverlapSeconds(validSwipes) {
-    let overlapSeconds = 0;
-    const segments = [];
-    
-    for (let i = 0; i < validSwipes.length; i++) {
-        const swipe = validSwipes[i];
-        const swipeTime = parseKekaTime(swipe.time);
-        if (!swipeTime) continue;
-
-        if (swipe.type === 'IN') {
-            if (i + 1 < validSwipes.length && validSwipes[i + 1].type === 'OUT') {
-                const outTime = parseKekaTime(validSwipes[i + 1].time);
-                if (outTime) segments.push({ start: swipeTime, end: outTime });
-            }
-        }
-    }
-    const lastSwipe = validSwipes[validSwipes.length - 1];
-    if (lastSwipe && lastSwipe.type === 'IN') {
-        const lastInTime = parseKekaTime(lastSwipe.time);
-        if (lastInTime) segments.push({ start: lastInTime, end: new Date() });
-    }
-
-    if (segments.length > 0) {
-        const baseDate = segments[0].start;
-        const onePM = new Date(baseDate);
-        onePM.setHours(13, 0, 0, 0);
-        const twoPM = new Date(baseDate);
-        twoPM.setHours(14, 0, 0, 0);
-
-        for (const seg of segments) {
-            if (seg.end > onePM && seg.start < twoPM) {
-                const overlapStart = new Date(Math.max(seg.start, onePM));
-                const overlapEnd = new Date(Math.min(seg.end, twoPM));
-                overlapSeconds += (overlapEnd - overlapStart) / 1000;
-            }
-        }
-    }
-    return overlapSeconds;
+    return calcStrictBreakOverlap(validSwipes);
 }
 
-// Display data from IN/OUT array
+// Display data from IN/OUT array — uses shared computeCountdownState
 function displayDataFromArray(inOutArray, todayEntry = null) {
     if (!inOutArray || inOutArray.length === 0) {
         displayNoData();
         return;
     }
 
-    const validSwipes = inOutArray.filter(swipe => swipe.time && swipe.time !== 'MISSING');
-
-    if (validSwipes.length === 0) {
+    // Use the shared computation for effective/break/gross
+    const state = computeCountdownState(todayEntry);
+    if (!state) {
         displayNoData();
         return;
     }
 
-    let firstIn = null;
-    let lastOut = null;
-    let totalEffectiveSeconds = 0;
-    let totalBreakSeconds = 0;
-
-    for (let i = 0; i < validSwipes.length; i++) {
-        const swipe = validSwipes[i];
-        const swipeTime = parseKekaTime(swipe.time);
-
-        if (!swipeTime) continue;
-
-        if (swipe.type === 'IN') {
-            if (!firstIn) firstIn = swipeTime;
-
-            if (i + 1 < validSwipes.length && validSwipes[i + 1].type === 'OUT') {
-                const outTime = parseKekaTime(validSwipes[i + 1].time);
-                if (outTime) {
-                    totalEffectiveSeconds += (outTime - swipeTime) / 1000;
-                    lastOut = outTime;
-
-                    if (i + 2 < validSwipes.length && validSwipes[i + 2].type === 'IN') {
-                        const nextInTime = parseKekaTime(validSwipes[i + 2].time);
-                        if (nextInTime) {
-                            totalBreakSeconds += (nextInTime - outTime) / 1000;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    const lastSwipe = validSwipes[validSwipes.length - 1];
-    if (lastSwipe.type === 'IN') {
-        const lastInTime = parseKekaTime(lastSwipe.time);
-        if (lastInTime) {
-            const now = new Date();
-            totalEffectiveSeconds += (now - lastInTime) / 1000;
-        }
-    }
-
-    const strictBreakOverlapSeconds = calculateStrictBreakOverlapSeconds(validSwipes);
-    totalEffectiveSeconds = Math.max(0, totalEffectiveSeconds - strictBreakOverlapSeconds);
-    totalBreakSeconds += strictBreakOverlapSeconds;
-
     displayData(
-        firstIn ? firstIn.toISOString() : null,
-        lastOut ? lastOut.toISOString() : null,
-        parseKekaDuration(todayEntry?.effectiveHours) ?? totalEffectiveSeconds,
-        parseKekaDuration(todayEntry?.breakTime) ?? totalBreakSeconds,
-        parseKekaDuration(todayEntry?.grossHours)
+        state.firstInTime ? state.firstInTime.toISOString() : null,
+        state.lastOutTime ? state.lastOutTime.toISOString() : null,
+        parseKekaDuration(todayEntry?.effectiveHours) ?? state.totalEffectiveSeconds,
+        parseKekaDuration(todayEntry?.breakTime) ?? state.totalBreakSeconds,
+        parseKekaDuration(todayEntry?.grossHours),
+        todayEntry
     );
 }
 
-// Display data
-function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecondsOverride = null) {
+// Display data — uses shared computeCountdownState for target exit time
+function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecondsOverride = null, todayEntry = null) {
     if (!inTime) {
-        displayNoData();
+        displayNoData(todayEntry);
         return;
     }
 
@@ -354,10 +258,27 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
 
     document.getElementById('inTime').textContent = formatTime(inDate);
 
-    // Show early entry badge if entered before 10 AM
-    const tenAMCheck = new Date(inDate);
-    tenAMCheck.setHours(10, 0, 0, 0);
-    const isEarlyEntryCheck = inDate < tenAMCheck;
+    // Show early entry badge if entered before appropriate threshold
+    const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+    let isEarlyEntryCheck = false;
+    let isFirstHalf = false;
+    if (hasLeave) {
+        const firstLeave = todayEntry.leaveDetails[0];
+        isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
+        if (isFirstHalf) {
+            const threePMCheck = new Date(inDate);
+            threePMCheck.setHours(15, 0, 0, 0);
+            isEarlyEntryCheck = inDate < threePMCheck;
+        } else {
+            const tenAMCheck = new Date(inDate);
+            tenAMCheck.setHours(10, 0, 0, 0);
+            isEarlyEntryCheck = inDate < tenAMCheck;
+        }
+    } else {
+        const tenAMCheck = new Date(inDate);
+        tenAMCheck.setHours(10, 0, 0, 0);
+        isEarlyEntryCheck = inDate < tenAMCheck;
+    }
 
     const earlyBadge = document.getElementById('earlyEntryBadge');
     if (earlyBadge) {
@@ -400,13 +321,61 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
     const grossSecs = Math.floor(displayGrossSeconds % 60);
     document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m ${grossSecs}s`;
 
-    const nineHoursInSeconds = 9 * 60 * 60;
-    const isNineHoursComplete = displayEffectiveSeconds >= nineHoursInSeconds;
+    const completionThreshold = hasLeave ? 4 * 60 * 60 : 9 * 60 * 60;
+    const isNineHoursComplete = displayEffectiveSeconds >= completionThreshold;
 
-    // Check if entry was before 10 AM
-    const tenAMDisplay = new Date(inDate);
-    tenAMDisplay.setHours(10, 0, 0, 0);
-    const isEarlyEntryDisplay = inDate < tenAMDisplay;
+    // Use shared computeCountdownState for target exit time (single source of truth)
+    const state = computeCountdownState(todayEntry);
+    let targetExitTime;
+    let isEarlyEntryDisplay;
+
+    if (state) {
+        targetExitTime = state.targetExitTime;
+        isEarlyEntryDisplay = state.isEarlyEntry;
+    } else {
+        // Fallback: compute from inDate and breaks (no todayEntry available)
+        isEarlyEntryDisplay = isEarlyEntryCheck;
+        const requiredEffectiveHours = hasLeave ? 4 : 8;
+        const requiredEffectiveMs = requiredEffectiveHours * 60 * 60 * 1000;
+        const breakMs = displayBreakSeconds * 1000;
+        const targetWithActualBreak = new Date(inDate.getTime() + requiredEffectiveMs + breakMs);
+
+        if (hasLeave) {
+            if (isFirstHalf) {
+                const threePM = new Date(inDate);
+                threePM.setHours(15, 0, 0, 0);
+                if (isEarlyEntryDisplay) {
+                    const sevenPM = new Date(inDate);
+                    sevenPM.setHours(19, 0, 0, 0);
+                    targetExitTime = new Date(Math.max(sevenPM.getTime(), targetWithActualBreak.getTime()));
+                } else {
+                    targetExitTime = targetWithActualBreak;
+                }
+            } else {
+                const tenAM = new Date(inDate);
+                tenAM.setHours(10, 0, 0, 0);
+                if (isEarlyEntryDisplay) {
+                    const threePM = new Date(inDate);
+                    threePM.setHours(15, 0, 0, 0);
+                    targetExitTime = new Date(Math.max(threePM.getTime(), targetWithActualBreak.getTime()));
+                } else {
+                    const fiveHoursMs = 5 * 60 * 60 * 1000;
+                    const targetWithStandardBreak = new Date(inDate.getTime() + fiveHoursMs);
+                    targetExitTime = new Date(Math.max(targetWithStandardBreak.getTime(), targetWithActualBreak.getTime()));
+                }
+            }
+        } else {
+            if (isEarlyEntryDisplay) {
+                const sevenPm = new Date(inDate);
+                sevenPm.setHours(19, 0, 0, 0);
+                targetExitTime = new Date(Math.max(sevenPm.getTime(), targetWithActualBreak.getTime()));
+            } else {
+                const oneHourBreakMs = 60 * 60 * 1000;
+                const targetWithStandardBreak = new Date(inDate.getTime() + requiredEffectiveMs + oneHourBreakMs);
+                targetExitTime = new Date(Math.max(targetWithStandardBreak.getTime(), targetWithActualBreak.getTime()));
+            }
+        }
+    }
 
     if (outDate) {
         document.getElementById('outTime').textContent = formatTime(outDate);
@@ -424,32 +393,14 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
         document.getElementById('statusIndicator').className = 'status-indicator pending';
     }
 
-    const effectiveEnd = new Date(inDate.getTime() + 8 * 60 * 60 * 1000);
+    const requiredEffectiveHours = hasLeave ? 4 : 8;
+    const effectiveEnd = new Date(inDate.getTime() + requiredEffectiveHours * 60 * 60 * 1000);
 
-    // Calculate target exit time based on entry time, 8h rule and breaks
-    let targetExitTime;
-    const requiredEffectiveMs = 8 * 60 * 60 * 1000;
-    const breakMs = displayBreakSeconds * 1000;
-    const targetWithActualBreak = new Date(inDate.getTime() + requiredEffectiveMs + breakMs);
+    // Keep background badge countdown in sync
+    chrome.storage.local.set({ targetGrossTime: targetExitTime.toISOString() });
 
-    if (isEarlyEntryDisplay) {
-        // If entered before 10 AM, target exit is 7 PM, extended if break is long
-        const sevenPm = new Date(inDate);
-        sevenPm.setHours(19, 0, 0, 0); // 7 PM
-        targetExitTime = new Date(Math.max(sevenPm.getTime(), targetWithActualBreak.getTime()));
-    } else {
-        // If entered after 10 AM, use 9-hour rule base, extended if break > 1h
-        const oneHourBreakMs = 60 * 60 * 1000;
-        const targetWithStandardBreak = new Date(inDate.getTime() + requiredEffectiveMs + oneHourBreakMs);
-        targetExitTime = new Date(Math.max(targetWithStandardBreak.getTime(), targetWithActualBreak.getTime()));
-    }
-
-    // Keep background badge countdown in sync if break time pushed the exit time
-    chrome.storage.local.get(['targetGrossTime'], (data) => {
-        if (data.targetGrossTime !== targetExitTime.toISOString()) {
-            chrome.storage.local.set({ targetGrossTime: targetExitTime.toISOString() });
-        }
-    });
+    // Tell background to refresh badge immediately
+    chrome.runtime.sendMessage({ type: 'TOGGLE_BADGE_COUNTDOWN', enabled: true });
 
     // Only set if element exists (it's commented out in HTML)
     const effectiveEndEl = document.getElementById('effectiveEnd');
@@ -465,20 +416,45 @@ function displayData(inTime, outTime, effectiveSeconds, breakSeconds, grossSecon
     // Update target exit label based on entry time
     const targetExitLabel = document.getElementById('targetExitLabel');
     if (targetExitLabel && isEarlyEntryDisplay) {
-        targetExitLabel.textContent = '🎯 Freedom Time (7 PM)';
+        let labelText = '🎯 Freedom Time (7 PM)';
+        if (hasLeave && !isFirstHalf) {
+            labelText = '🎯 Freedom Time (3 PM)';
+        }
+        targetExitLabel.textContent = labelText;
     } else if (targetExitLabel) {
         targetExitLabel.textContent = '🎯 Target Exit';
     }
 
-    updateRemainingTime(targetExitTime, outDate, isNineHoursComplete, isEarlyEntryDisplay);
+    // Handle leave details banner display
+    const leaveBanner = document.getElementById('leaveBanner');
+    if (leaveBanner) {
+        if (hasLeave) {
+            const leaveTitle = document.getElementById('leaveTitle');
+            const leaveSubtitle = document.getElementById('leaveSubtitle');
+
+            if (leaveTitle) {
+                leaveTitle.textContent = isFirstHalf ? '📅 1st Half Leave' : '📅 2nd Half Leave';
+            }
+            if (leaveSubtitle) {
+                leaveSubtitle.textContent = isFirstHalf
+                    ? 'Working Hours: 3:00 PM to 7:00 PM (4h)'
+                    : 'Working Hours: 10:00 AM to 3:00 PM (5h)';
+            }
+            leaveBanner.style.display = 'flex';
+        } else {
+            leaveBanner.style.display = 'none';
+        }
+    }
+
+    updateRemainingTime(targetExitTime, outDate, isNineHoursComplete, isEarlyEntryDisplay, hasLeave, isFirstHalf);
 
     if (!isNineHoursComplete) {
-        setupDefaultNotifications(inDate, targetExitTime);
+        setupDefaultNotifications(inDate, targetExitTime, todayEntry);
     }
 }
 
 // Display no Keka data state (does not clear workspace total)
-function displayNoKekaData() {
+function displayNoKekaData(todayEntry = null) {
     document.getElementById('inTime').textContent = '--:--:--';
     document.getElementById('outTime').textContent = '--:--:--';
     document.getElementById('grossHours').textContent = '--h --m --s';
@@ -498,11 +474,36 @@ function displayNoKekaData() {
 
     const progressBar = document.getElementById('progressBar');
     if (progressBar) progressBar.style.width = '0%';
+
+    // Handle leave details banner display
+    const leaveBanner = document.getElementById('leaveBanner');
+    if (leaveBanner) {
+        const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+        if (hasLeave) {
+            const firstLeave = todayEntry.leaveDetails[0];
+            const isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
+
+            const leaveTitle = document.getElementById('leaveTitle');
+            const leaveSubtitle = document.getElementById('leaveSubtitle');
+
+            if (leaveTitle) {
+                leaveTitle.textContent = isFirstHalf ? '📅 1st Half Leave' : '📅 2nd Half Leave';
+            }
+            if (leaveSubtitle) {
+                leaveSubtitle.textContent = isFirstHalf
+                    ? 'Working Hours: 3:00 PM to 7:00 PM (4h)'
+                    : 'Working Hours: 10:00 AM to 3:00 PM (5h)';
+            }
+            leaveBanner.style.display = 'flex';
+        } else {
+            leaveBanner.style.display = 'none';
+        }
+    }
 }
 
 // Display no data state (Keka + workspace total)
-function displayNoData() {
-    displayNoKekaData();
+function displayNoData(todayEntry = null) {
+    displayNoKekaData(todayEntry);
     const workspaceTotalEl = document.getElementById('workspaceTotalLogged');
     if (workspaceTotalEl) workspaceTotalEl.textContent = '--:--';
     const workspaceRemEl = document.getElementById('workspaceRemainingTime');
@@ -630,7 +631,7 @@ function initPunchCardToggle() {
 }
 
 // Setup default notifications
-function setupDefaultNotifications(firstInTime, targetExitTime) {
+function setupDefaultNotifications(firstInTime, targetExitTime, todayEntry = null) {
     // Check if default notifications were already set up today to avoid recursive sends
     const todayKey = new Date().toDateString();
 
@@ -640,19 +641,43 @@ function setupDefaultNotifications(firstInTime, targetExitTime) {
             return;
         }
 
-        // Note: Effective 8h notification will be triggered when actual effective hours reach 8
-        // We pass a placeholder time here, but the actual monitoring happens in background
-        const effectivePlaceholder = new Date(firstInTime.getTime() + 8 * 60 * 60 * 1000);
+        const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+        let isFirstHalf = false;
+        if (hasLeave) {
+            const firstLeave = todayEntry.leaveDetails[0];
+            isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
+        }
 
-        // Check if entry was before 10 AM for appropriate messaging
-        const tenAM = new Date(firstInTime);
-        tenAM.setHours(10, 0, 0, 0);
-        const isEarlyEntry = firstInTime < tenAM;
+        const requiredEffectiveHours = hasLeave ? 4 : 8;
+        const effectivePlaceholder = new Date(firstInTime.getTime() + requiredEffectiveHours * 60 * 60 * 1000);
 
-        const defaultNotifs = data.defaultNotifications || {
-            effective: { message: '🎉 8 Hours Complete (Effective)! Great work!' },
-            gross: { message: isEarlyEntry ? '🎯 7 PM Freedom Time! You can leave now! 🚀' : '🎯 Target Exit Time! You can leave now.' }
+        // Check if entry was before 10 AM (or before 3 PM for 1st half leave) for appropriate messaging
+        let isEarlyEntry;
+        if (hasLeave && isFirstHalf) {
+            const threePM = new Date(firstInTime);
+            threePM.setHours(15, 0, 0, 0);
+            isEarlyEntry = firstInTime < threePM;
+        } else {
+            const tenAM = new Date(firstInTime);
+            tenAM.setHours(10, 0, 0, 0);
+            isEarlyEntry = firstInTime < tenAM;
+        }
+
+        let defaultNotifs = data.defaultNotifications || {
+            effective: { message: hasLeave ? '🎉 4 Hours Complete (Effective)! Great work!' : '🎉 8 Hours Complete (Effective)! Great work!' },
+            gross: { message: isEarlyEntry ? (hasLeave && !isFirstHalf ? '🎯 3 PM Freedom Time! You can leave now! 🚀' : '🎯 7 PM Freedom Time! You can leave now! 🚀') : '🎯 Target Exit Time! You can leave now.' }
         };
+
+        if (hasLeave) {
+            if (defaultNotifs.effective?.message) {
+                defaultNotifs.effective.message = defaultNotifs.effective.message.replace('8', '4');
+            }
+            if (defaultNotifs.gross?.message) {
+                if (!isFirstHalf) {
+                    defaultNotifs.gross.message = defaultNotifs.gross.message.replace('7 PM', '3 PM');
+                }
+            }
+        }
 
         // Mark as set up for today — prevents duplicate setup on subsequent popup opens
         chrome.storage.local.set({ defaultNotificationsSetupDate: todayKey });
@@ -672,7 +697,7 @@ function setupDefaultNotifications(firstInTime, targetExitTime) {
 }
 
 // Update remaining time
-function updateRemainingTime(exitTime, outDate, isComplete, isEarlyEntry) {
+function updateRemainingTime(exitTime, outDate, isComplete, isEarlyEntry, hasLeave = false, isFirstHalf = false) {
     const now = new Date();
 
     if (outDate && isComplete) {
@@ -705,9 +730,17 @@ function updateRemainingTime(exitTime, outDate, isComplete, isEarlyEntry) {
     const subtitleEl = document.getElementById('countdownSubtitle');
     if (isEarlyEntry) {
         if (hours <= 1) {
-            subtitleEl.textContent = 'Almost 7 PM! Freedom is near! 🎯';
+            if (hasLeave && !isFirstHalf) {
+                subtitleEl.textContent = 'Almost 3 PM! Freedom is near! 🎯';
+            } else {
+                subtitleEl.textContent = 'Almost 7 PM! Freedom is near! 🎯';
+            }
         } else {
-            subtitleEl.textContent = 'Countdown to 7 PM freedom! 🚀';
+            if (hasLeave && !isFirstHalf) {
+                subtitleEl.textContent = 'Countdown to 3 PM freedom! 🚀';
+            } else {
+                subtitleEl.textContent = 'Countdown to 7 PM freedom! 🚀';
+            }
         }
     } else {
         if (hours <= 1) {
@@ -718,7 +751,7 @@ function updateRemainingTime(exitTime, outDate, isComplete, isEarlyEntry) {
     }
 }
 
-// Start countdown timer
+// Start countdown timer — uses shared computeCountdownState
 function startCountdown() {
     if (countdownInterval) {
         clearInterval(countdownInterval);
@@ -729,130 +762,60 @@ function startCountdown() {
             if (!data.scrapedAttendance || !isStorageForToday(data.scrapedAttendance)) return;
 
             const todayEntry = resolveTodayEntry(data.scrapedAttendance);
-            if (!todayEntry || !todayEntry.inOutArray) return;
+            const state = computeCountdownState(todayEntry);
+            if (!state) return;
 
-            const validSwipes = todayEntry.inOutArray.filter(swipe => swipe.time && swipe.time !== 'MISSING');
-            if (validSwipes.length === 0) return;
+            const { firstInTime, lastOutTime, isCurrentlyWorking, isEarlyEntry,
+                    totalEffectiveSeconds, totalBreakSeconds, grossSeconds,
+                    targetExitTime, isComplete } = state;
 
-            let firstInTime = null;
-            let lastOutTime = null;
-            let totalEffectiveSeconds = 0;
-            let totalBreakSeconds = 0;
-            let isCurrentlyWorking = false;
-
-            for (let i = 0; i < validSwipes.length; i++) {
-                const swipe = validSwipes[i];
-                const swipeTime = parseKekaTime(swipe.time);
-
-                if (!swipeTime) continue;
-
-                if (swipe.type === 'IN') {
-                    if (!firstInTime) firstInTime = swipeTime;
-
-                    if (i + 1 < validSwipes.length && validSwipes[i + 1].type === 'OUT') {
-                        const outTime = parseKekaTime(validSwipes[i + 1].time);
-                        if (outTime) {
-                            totalEffectiveSeconds += (outTime - swipeTime) / 1000;
-                            lastOutTime = outTime;
-
-                            if (i + 2 < validSwipes.length && validSwipes[i + 2].type === 'IN') {
-                                const nextInTime = parseKekaTime(validSwipes[i + 2].time);
-                                if (nextInTime) {
-                                    totalBreakSeconds += (nextInTime - outTime) / 1000;
-                                }
-                            }
-                        }
-                    }
-                }
+            const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
+            let isFirstHalf = false;
+            if (hasLeave) {
+                const firstLeave = todayEntry.leaveDetails[0];
+                isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
             }
 
-            const lastSwipe = validSwipes[validSwipes.length - 1];
-            if (lastSwipe && lastSwipe.type === 'IN') {
-                const lastInTime = parseKekaTime(lastSwipe.time);
-                if (lastInTime) {
-                    const now = new Date();
-                    totalEffectiveSeconds += (now - lastInTime) / 1000;
-                    isCurrentlyWorking = true;
+            // Update UI elements for early entry
+            const targetExitLabel = document.getElementById('targetExitLabel');
+            if (targetExitLabel && isEarlyEntry) {
+                let labelText = '🎯 Freedom Time (7 PM)';
+                if (hasLeave && !isFirstHalf) {
+                    labelText = '🎯 Freedom Time (3 PM)';
                 }
+                targetExitLabel.textContent = labelText;
+            } else if (targetExitLabel) {
+                targetExitLabel.textContent = '🎯 Target Exit';
             }
 
-            const strictBreakOverlapSeconds = calculateStrictBreakOverlapSeconds(validSwipes);
-            totalEffectiveSeconds = Math.max(0, totalEffectiveSeconds - strictBreakOverlapSeconds);
-            totalBreakSeconds += strictBreakOverlapSeconds;
+            const earlyBadge = document.getElementById('earlyEntryBadge');
+            if (earlyBadge) {
+                earlyBadge.style.display = isEarlyEntry ? 'block' : 'none';
+            }
 
-            if (firstInTime) {
-                // Check if entry was before 10 AM
-                const tenAM = new Date(firstInTime);
-                tenAM.setHours(10, 0, 0, 0);
-                const isEarlyEntry = firstInTime < tenAM;
+            const grossHours = Math.floor(grossSeconds / 3600);
+            const grossMinutes = Math.floor((grossSeconds % 3600) / 60);
+            const grossSecs = Math.floor(grossSeconds % 60);
+            document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m ${grossSecs}s`;
 
-                // Calculate target exit time based on entry time, 8h rule and actual breaks
-                let exitTime;
-                const requiredEffectiveMs = 8 * 60 * 60 * 1000;
-                const breakMs = totalBreakSeconds * 1000;
-                const targetWithActualBreak = new Date(firstInTime.getTime() + requiredEffectiveMs + breakMs);
+            const effectiveHours = Math.floor(totalEffectiveSeconds / 3600);
+            const effectiveMinutes = Math.floor((totalEffectiveSeconds % 3600) / 60);
+            const effectiveSecs = Math.floor(totalEffectiveSeconds % 60);
+            document.getElementById('effectiveHours').textContent = `${effectiveHours}h ${effectiveMinutes}m ${effectiveSecs}s`;
 
-                if (isEarlyEntry) {
-                    // If entered before 10 AM, target exit is 7 PM, extended if break is long
-                    const sevenPm = new Date(firstInTime);
-                    sevenPm.setHours(19, 0, 0, 0); // 7 PM
-                    exitTime = new Date(Math.max(sevenPm.getTime(), targetWithActualBreak.getTime()));
-                } else {
-                    // If entered after 10 AM, use 9-hour rule base, extended if break > 1h
-                    const oneHourBreakMs = 60 * 60 * 1000;
-                    const targetWithStandardBreak = new Date(firstInTime.getTime() + requiredEffectiveMs + oneHourBreakMs);
-                    exitTime = new Date(Math.max(targetWithStandardBreak.getTime(), targetWithActualBreak.getTime()));
-                }
+            const breakHours = Math.floor(totalBreakSeconds / 3600);
+            const breakMinutes = Math.floor((totalBreakSeconds % 3600) / 60);
+            const breakSecs = Math.floor(totalBreakSeconds % 60);
+            document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m ${breakSecs}s`;
 
-                const now = new Date();
+            updateRemainingTime(targetExitTime, lastOutTime, isComplete, isEarlyEntry, hasLeave, isFirstHalf);
 
-                // Update UI elements for early entry
-                const targetExitLabel = document.getElementById('targetExitLabel');
-                if (targetExitLabel && isEarlyEntry) {
-                    targetExitLabel.textContent = '🎯 Freedom Time (7 PM)';
-                } else if (targetExitLabel) {
-                    targetExitLabel.textContent = '🎯 Target Exit';
-                }
-
-                const earlyBadge = document.getElementById('earlyEntryBadge');
-                if (earlyBadge) {
-                    earlyBadge.style.display = isEarlyEntry ? 'block' : 'none';
-                }
-
-                let currentGrossSeconds;
-                if (isCurrentlyWorking || !lastOutTime) {
-                    currentGrossSeconds = (now - firstInTime) / 1000;
-                } else {
-                    currentGrossSeconds = (lastOutTime - firstInTime) / 1000;
-                }
-
-                const grossHours = Math.floor(currentGrossSeconds / 3600);
-                const grossMinutes = Math.floor((currentGrossSeconds % 3600) / 60);
-                const grossSecs = Math.floor(currentGrossSeconds % 60);
-                document.getElementById('grossHours').textContent = `${grossHours}h ${grossMinutes}m ${grossSecs}s`;
-
-                const effectiveHours = Math.floor(totalEffectiveSeconds / 3600);
-                const effectiveMinutes = Math.floor((totalEffectiveSeconds % 3600) / 60);
-                const effectiveSecs = Math.floor(totalEffectiveSeconds % 60);
-                document.getElementById('effectiveHours').textContent = `${effectiveHours}h ${effectiveMinutes}m ${effectiveSecs}s`;
-
-                const breakHours = Math.floor(totalBreakSeconds / 3600);
-                const breakMinutes = Math.floor((totalBreakSeconds % 3600) / 60);
-                const breakSecs = Math.floor(totalBreakSeconds % 60);
-                document.getElementById('breakTime').textContent = `${breakHours}h ${breakMinutes}m ${breakSecs}s`;
-
-                const nineHoursInSeconds = 9 * 60 * 60;
-                const isComplete = totalEffectiveSeconds >= nineHoursInSeconds;
-
-                updateRemainingTime(exitTime, lastOutTime, isComplete, isEarlyEntry);
-
-                if (lastOutTime && isComplete) {
-                    document.getElementById('statusText').textContent = t('status_accomplished');
-                    document.getElementById('statusIndicator').className = 'status-indicator ok';
-                } else if (lastOutTime && !isComplete) {
-                    document.getElementById('statusText').textContent = t('status_grinding');
-                    document.getElementById('statusIndicator').className = 'status-indicator pending';
-                }
+            if (lastOutTime && isComplete) {
+                document.getElementById('statusText').textContent = t('status_accomplished');
+                document.getElementById('statusIndicator').className = 'status-indicator ok';
+            } else if (lastOutTime && !isComplete) {
+                document.getElementById('statusText').textContent = t('status_grinding');
+                document.getElementById('statusIndicator').className = 'status-indicator pending';
             }
         });
     }, 1000);

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keka Hours Tracker - Test Mock Panel</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="languages.js"></script>
+  <style>
+    /* Styling for test controls on top */
+    .test-controls {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 16px;
+      border-bottom: 2px solid #313244;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .test-controls h2 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 16px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .test-btn {
+      background: #313244;
+      color: #cdd6f4;
+      border: 1px solid #45475a;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      transition: all 0.2s ease;
+    }
+    .test-btn:hover {
+      background: #45475a;
+    }
+    .test-btn.active {
+      background: #7c3aed;
+      border-color: #9d4edd;
+      color: white;
+    }
+  </style>
+  <script>
+    // Setup Mock Chrome APIs
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Default Mock Storage Data
+    const mockDataStandard = {
+      kekaAuthToken: "mock-jwt-token-xyz",
+      autoSyncEnabled: false,
+      badgeCountdownEnabled: true,
+      scrapedAttendance: {
+        todayDateKey: todayStr,
+        todayEntry: {
+          date: "Thursday, Aug 13",
+          attendanceDate: todayStr,
+          checkIn: "10:15:00 AM",
+          checkOut: "MISSING",
+          grossHours: "0h 0m",
+          effectiveHours: "0h 0m",
+          breakTime: "0h 0m",
+          inOutArray: [
+            { type: "IN", time: "10:15:00 AM", premise: "Office" }
+          ],
+          leaveDetails: []
+        },
+        entries: []
+      }
+    };
+
+    const mockDataFirstHalfLeave = {
+      kekaAuthToken: "mock-jwt-token-xyz",
+      autoSyncEnabled: false,
+      badgeCountdownEnabled: true,
+      scrapedAttendance: {
+        todayDateKey: todayStr,
+        todayEntry: {
+          date: "Thursday, Aug 13",
+          attendanceDate: todayStr,
+          checkIn: "3:05:00 PM",
+          checkOut: "MISSING",
+          grossHours: "0h 0m",
+          effectiveHours: "0h 0m",
+          breakTime: "0h 0m",
+          inOutArray: [
+            { type: "IN", time: "3:05:00 PM", premise: "Office" }
+          ],
+          leaveDetails: [
+            { isFirstHalfLeave: true }
+          ]
+        },
+        entries: []
+      }
+    };
+
+    const mockDataSecondHalfLeave = {
+      kekaAuthToken: "mock-jwt-token-xyz",
+      autoSyncEnabled: false,
+      badgeCountdownEnabled: true,
+      scrapedAttendance: {
+        todayDateKey: todayStr,
+        todayEntry: {
+          date: "Thursday, Aug 13",
+          attendanceDate: todayStr,
+          checkIn: "9:50:00 AM",
+          checkOut: "MISSING",
+          grossHours: "0h 0m",
+          effectiveHours: "0h 0m",
+          breakTime: "0h 0m",
+          inOutArray: [
+            { type: "IN", time: "9:50:00 AM", premise: "Office" }
+          ],
+          leaveDetails: [
+            { isFirstHalfLeave: false }
+          ]
+        },
+        entries: []
+      }
+    };
+
+    window.chrome = {
+      storage: {
+        local: {
+          storageData: Object.assign({}, mockDataStandard),
+          get: function(keys, callback) {
+            let result = {};
+            if (typeof keys === 'string') {
+              result[keys] = this.storageData[keys];
+            } else if (Array.isArray(keys)) {
+              keys.forEach(k => {
+                result[k] = this.storageData[k];
+              });
+            }
+            setTimeout(() => callback(result), 0);
+          },
+          set: function(items, callback) {
+            Object.assign(this.storageData, items);
+            if (callback) setTimeout(callback, 0);
+          },
+          remove: function(keys, callback) {
+            if (typeof keys === 'string') {
+              delete this.storageData[keys];
+            } else if (Array.isArray(keys)) {
+              keys.forEach(k => delete this.storageData[k]);
+            }
+            if (callback) setTimeout(callback, 0);
+          }
+        }
+      },
+      runtime: {
+        sendMessage: function(msg, callback) {
+          console.log("Mock sendMessage called:", msg);
+          if (callback) setTimeout(() => callback({ success: true }), 0);
+        },
+        onMessage: {
+          addListener: function(listener) {
+            console.log("Mock runtime.onMessage listener registered");
+          }
+        }
+      },
+      alarms: {
+        create: function(name, info) {
+          console.log("Mock alarm created:", name, info);
+        },
+        clear: function(name, callback) {
+          console.log("Mock alarm cleared:", name);
+          if (callback) setTimeout(callback, 0);
+        }
+      }
+    };
+
+    function setMockScenario(scenario) {
+      document.querySelectorAll('.test-btn').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('btn-' + scenario).classList.add('active');
+      
+      let dataToLoad;
+      if (scenario === 'standard') {
+        dataToLoad = mockDataStandard;
+      } else if (scenario === 'first-half') {
+        dataToLoad = mockDataFirstHalfLeave;
+      } else if (scenario === 'second-half') {
+        dataToLoad = mockDataSecondHalfLeave;
+      }
+      
+      window.chrome.storage.local.storageData = Object.assign({}, dataToLoad);
+      console.log("Mock scenario set to:", scenario, window.chrome.storage.local.storageData);
+      
+      // Force UI reload
+      if (typeof loadData === 'function') {
+        loadData();
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Test controls at the top -->
+  <div class="test-controls">
+    <h2>🧪 Half-Day Leave Test Scenarios</h2>
+    <div class="btn-group">
+      <button class="test-btn active" id="btn-standard" onclick="setMockScenario('standard')">Standard Working Day</button>
+      <button class="test-btn" id="btn-first-half" onclick="setMockScenario('first-half')">1st Half Leave (Work 3-7 PM)</button>
+      <button class="test-btn" id="btn-second-half" onclick="setMockScenario('second-half')">2nd Half Leave (Work 10 AM-3 PM)</button>
+    </div>
+    <div style="font-size: 12px; opacity: 0.8;">
+      Click the buttons above to simulate different attendance / leave states and verify that calculations and layout banners update in real-time.
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Navigation Bar -->
+    <div class="navbar">
+      <button class="nav-btn active" data-page="home">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z"/></svg></span>
+        <span class="nav-label" data-i18n="nav_dashboard">Keka</span>
+      </button>
+      <button class="nav-btn" data-page="workspace">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></span>
+        <span class="nav-label" data-i18n="nav_workspace">Workspace</span>
+      </button>
+      <button class="nav-btn" data-page="settings">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
+        <span class="nav-label" data-i18n="nav_settings">Settings</span>
+      </button>
+      <button id="themeToggle" class="nav-btn theme-btn">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>
+        <span class="nav-label" data-i18n="nav_theme">Theme</span>
+      </button>
+    </div>
+
+    <!-- HOME PAGE -->
+    <div id="homePage" class="page active">
+      <div class="page-header">
+        <h1 class="page-title" data-i18n="page_title">Today's Attendance</h1>
+        <p class="page-subtitle" data-i18n="page_subtitle">Track your hours and plan your exit</p>
+      </div>
+    
+      <!-- Main Data Display -->
+      <div class="data-section" id="dataSection">
+        <div class="status-card">
+          <div class="status-indicator" id="statusIndicator">
+            <span id="statusText">No data available</span>
+          </div>
+        </div>
+        
+        <div class="time-grid">
+          <div class="time-item">
+            <span class="label" data-i18n="label_first_in">First IN</span>
+            <span class="value" id="inTime">--:--:--</span>
+            <span class="early-entry-badge" id="earlyEntryBadge" style="display: none;">Early Bird</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_last_out">Last OUT</span>
+            <span class="value" id="outTime">--:--:--</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_gross_hours">Gross Hours</span>
+            <span class="value highlight" id="grossHours">--h --m</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_effective_hours">Effective Hours</span>
+            <span class="value highlight" id="effectiveHours">--h --m</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" data-i18n="label_break_time">Break Time</span>
+            <span class="value" id="breakTime">--h --m</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" id="targetExitLabel" data-i18n="label_target_exit">Target Exit</span>
+            <span class="value highlight" id="exitTime">--:--:--</span>
+          </div>
+
+          <div class="time-item">
+            <span class="label" id="workspaceTimerLabel" data-i18n="label_workspace_total">Workspace Timer</span>
+            <span class="value highlight" id="workspaceTotalLogged">--:--</span>
+          </div>
+          
+          <div class="time-item">
+            <span class="label" id="workspaceRemainingLabel" data-i18n="label_workspace_remaining">Remaining Workspace (8h)</span>
+            <span class="value highlight" id="workspaceRemainingTime">--h --m</span>
+          </div>
+          
+        </div>
+
+        <!-- Half-Day Leave Banner -->
+        <div class="leave-banner" id="leaveBanner" style="display: none;">
+          <div class="leave-icon">📅</div>
+          <div class="leave-details">
+            <span class="leave-title" id="leaveTitle">Half-Day Leave</span>
+            <span class="leave-subtitle" id="leaveSubtitle">--</span>
+          </div>
+        </div>
+        
+        <!-- Time Left - Full Width Countdown Banner -->
+        <div class="countdown-banner">
+          <div class="countdown-content">
+            <div class="countdown-inner">
+              <div class="countdown-label-wrapper">
+                <span class="countdown-emoji">⏳</span>
+                <span class="countdown-label" data-i18n="countdown_title">Time Remaining</span>
+              </div>
+              <div class="countdown-timer" id="remainingTime">--:--:--</div>
+              <div class="countdown-subtitle" id="countdownSubtitle" data-i18n="countdown_subtitle">Until your target exit time</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- IN/OUT List -->
+        <div class="inout-list-section" id="inoutListSection" style="display: none;">
+          <div class="punch-card-header" id="punchCardHeader">
+            <h3 data-i18n="punch_card_title">📋 Today's Punch Card</h3>
+            <span class="toggle-icon">▼</span>
+          </div>
+          <div class="inout-list">
+            <div class="inout-list-items" id="inoutList">
+              <!-- Will be populated dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 20px;">
+        <button id="openKeka" class="test-btn" style="margin: 0 auto; display: none;">Open Keka Website</button>
+      </div>
+    </div>
+
+    <!-- WORKSPACE PAGE (dummy) -->
+    <div id="workspacePage" class="page">
+      <div style="padding: 20px; text-align: center; color: var(--text-secondary);">
+        Workspace Page simulated in test-mock.
+      </div>
+    </div>
+
+    <!-- SETTINGS PAGE (dummy) -->
+    <div id="settingsPage" class="page">
+      <div style="padding: 20px; font-size: 13px;">
+        <h3>Custom Notifications Settings</h3>
+        <button id="addNotification" class="test-btn">Add Notification</button>
+        <button id="saveSettings" class="test-btn">Save Settings</button>
+        <button id="testNotification" class="test-btn">Test Notification</button>
+        <button id="refreshShiftData" class="test-btn">Refresh Shift Data</button>
+        <button id="retryShiftData" class="test-btn">Retry Shift Data</button>
+        
+        <br><br>
+        <label><input type="checkbox" id="darkModeToggle" checked> Dark Mode</label><br>
+        <label><input type="checkbox" id="notificationsToggle" checked> Notifications</label><br>
+        <label><input type="checkbox" id="autoSyncToggle" checked> Auto Sync</label><br>
+        <label><input type="checkbox" id="badgeCountdownToggle" checked> Badge Countdown</label><br>
+        
+        <br>
+        <select id="windowModeSelect"><option value="floating">Floating</option><option value="sticky">Sticky</option></select>
+        <select id="languageSelect"><option value="en">English</option></select>
+        <select id="funnyTextToggle"><option value="true">Funny</option><option value="false">Standard</option></select>
+      </div>
+    </div>
+  </div>
+
+  <script src="../shared/countdown-calc.js"></script>
+  <!-- Mock workspace.js variables to avoid script loading error -->
+  <script>
+    window.autoFetchWorkspaceData = function() {};
+    window.loadWorkspaceDashboardTotal = function() {};
+    window.displayNoData = window.displayNoData || function() {};
+  </script>
+  <script src="popup.js"></script>
+</body>
+</html>

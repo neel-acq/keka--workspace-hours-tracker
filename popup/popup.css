@@ -2469,3 +2469,50 @@ body.dark-mode .inout-duration {
 .settings-tab .tab-icon {
     display: none;
 }
+
+/* Leave Banner Styling */
+.leave-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.08), rgba(124, 58, 237, 0.08));
+    border: 1px solid rgba(236, 72, 153, 0.2);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-top: 14px;
+    margin-bottom: 4px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.leave-banner:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(236, 72, 153, 0.15);
+}
+
+.leave-icon {
+    font-size: 24px;
+    background: linear-gradient(135deg, #ec4899, #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.leave-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.leave-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.leave-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
