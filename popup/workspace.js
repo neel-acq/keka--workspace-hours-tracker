@@ -245,6 +245,7 @@ async function loadWorkspaceData() {
   loadWorkspaceDataInFlight = true;
   try {
     const data = await chrome.storage.local.get([
+      "teamsConversationIds",
       "teamsConversationId",
       "teamsFromId",
       "teamsDisplayName",
@@ -309,7 +310,8 @@ async function loadWorkspaceData() {
 
     updateTeamsFromIdUI(data.teamsFromId);
     updateWorkspaceConfigStatus(data);
-    await fetchTeamsGroups(data.teamsConversationId);
+    // Pass the first saved ID for legacy compat, full array resolved inside fetchTeamsGroups
+    await fetchTeamsGroups(data.teamsConversationIds?.[0] || data.teamsConversationId);
     renderPresetEditor(data.teamsPrewrittenMessages);
     renderQuickEodButtons(data.teamsPrewrittenMessages);
     await updateSmartSuggestion();
@@ -397,7 +399,8 @@ function updateWorkspaceConfigStatus(data) {
   const text = document.getElementById("workspaceConfigText");
   if (!badge || !text) return;
 
-  const isConfigured = !!(data.teamsConversationId && data.teamsDisplayName);
+  const hasGroups = (Array.isArray(data.teamsConversationIds) && data.teamsConversationIds.length > 0) || !!data.teamsConversationId;
+  const isConfigured = !!(hasGroups && data.teamsDisplayName);
   if (isConfigured) {
     badge.textContent = t("ws_configured");
     badge.className = "card-badge ok";
@@ -410,62 +413,110 @@ function updateWorkspaceConfigStatus(data) {
 }
 
 async function fetchTeamsGroups(savedConversationId) {
-  const select = document.getElementById("teamsGroupSelect");
-  if (!select) return;
+  const trigger = document.getElementById("teamsGroupTrigger");
+  const panel = document.getElementById("teamsGroupPanel");
+  const label = document.getElementById("teamsGroupLabel");
+  if (!panel || !trigger || !label) return;
 
-  select.innerHTML = `<option value="">${t("ws_groups_loading")}</option>`;
+  // Normalize saved IDs into an array (supports both old single string and new array)
+  const savedIds = await (async () => {
+    const data = await chrome.storage.local.get(["teamsConversationIds", "teamsConversationId"]);
+    if (Array.isArray(data.teamsConversationIds) && data.teamsConversationIds.length) {
+      return data.teamsConversationIds;
+    }
+    if (data.teamsConversationId) return [data.teamsConversationId];
+    if (savedConversationId) return [savedConversationId];
+    return [];
+  })();
 
-  const response = await chrome.runtime.sendMessage({
-    type: "FETCH_TEAMS_GROUPS",
-  });
+  label.textContent = t("ws_groups_loading");
+  panel.innerHTML = "";
+
+  const response = await chrome.runtime.sendMessage({ type: "FETCH_TEAMS_GROUPS" });
 
   if (!response?.success) {
-    if (savedConversationId) {
-      select.innerHTML = "";
-      const option = document.createElement("option");
-      option.value = savedConversationId;
-      option.textContent = t("ws_groups_saved");
-      option.selected = true;
-      select.appendChild(option);
+    if (savedIds.length) {
+      label.textContent = t("ws_groups_saved");
+      panel.innerHTML = savedIds
+        .map(id => `<label class="multi-select-option checked"><input type="checkbox" value="${id}" checked><span>${id}</span></label>`)
+        .join("");
+      bindMultiSelectPanel(panel, trigger, label);
       return;
     }
-    select.innerHTML = `<option value="">${t("ws_groups_error")}</option>`;
+    label.textContent = t("ws_groups_error");
     return;
   }
 
-  select.innerHTML = "";
   if (!response.groups.length) {
-    select.innerHTML = `<option value="">${t("ws_groups_empty")}</option>`;
+    label.textContent = t("ws_groups_empty");
     return;
   }
 
-  let savedFound = false;
   response.groups.forEach((group) => {
-    const option = document.createElement("option");
-    option.value = group.id;
-    option.textContent = group.name;
-    if (group.id === savedConversationId) {
-      option.selected = true;
-      savedFound = true;
-    }
-    select.appendChild(option);
+    const isChecked = savedIds.includes(group.id);
+    const opt = document.createElement("label");
+    opt.className = "multi-select-option" + (isChecked ? " checked" : "");
+    opt.innerHTML = `<input type="checkbox" value="${group.id}"${isChecked ? " checked" : ""}><span> ${escapeHtml(group.name)}</span>`;
+    panel.appendChild(opt);
   });
 
-  if (!savedFound && response.groups.length > 0) {
-    select.options[0].selected = true;
-    if (!savedConversationId) {
-      chrome.storage.local
-        .set({ teamsConversationId: response.groups[0].id })
-        .then(() => {
-          chrome.storage.local.get(
-            ["teamsDisplayName", "teamsConversationId"],
-            (data) => {
-              updateWorkspaceConfigStatus(data);
-            },
-          );
-        });
+  // If nothing saved yet, default-select the first group and persist it
+  if (!savedIds.length && response.groups.length > 0) {
+    const firstCheckbox = panel.querySelector("input[type=checkbox]");
+    if (firstCheckbox) {
+      firstCheckbox.checked = true;
+      firstCheckbox.closest(".multi-select-option").classList.add("checked");
+      const defaultId = response.groups[0].id;
+      chrome.storage.local.set({ teamsConversationIds: [defaultId], teamsConversationId: defaultId }, () => {
+        chrome.storage.local.get(["teamsDisplayName", "teamsConversationId"], (d) => updateWorkspaceConfigStatus(d));
+      });
     }
   }
+
+  updateMultiSelectLabel(panel, label);
+  bindMultiSelectPanel(panel, trigger, label);
+}
+
+function updateMultiSelectLabel(panel, label) {
+  const checked = Array.from(panel.querySelectorAll("input[type=checkbox]:checked"));
+  if (!checked.length) {
+    label.textContent = t("ws_groups_loading") || "Select groups...";
+    return;
+  }
+  const names = checked.map(cb => cb.nextElementSibling?.textContent || cb.value);
+  label.textContent = names.join(", ");
+}
+
+function bindMultiSelectPanel(panel, trigger, label) {
+  // Guard against adding duplicate listeners on re-renders
+  if (trigger._multiSelectBound) return;
+  trigger._multiSelectBound = true;
+
+  // Toggle panel open/close
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isOpen = panel.style.display !== "none";
+    panel.style.display = isOpen ? "none" : "block";
+    trigger.classList.toggle("open", !isOpen);
+    trigger.setAttribute("aria-expanded", String(!isOpen));
+  });
+
+  // Close when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!trigger.contains(e.target) && !panel.contains(e.target)) {
+      panel.style.display = "none";
+      trigger.classList.remove("open");
+      trigger.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  // Update label on checkbox change — delegate so it survives panel innerHTML reuse
+  panel.addEventListener("change", () => {
+    panel.querySelectorAll(".multi-select-option").forEach((opt) => {
+      opt.classList.toggle("checked", opt.querySelector("input").checked);
+    });
+    updateMultiSelectLabel(panel, label);
+  });
 }
 
 function updateTeamsFromIdUI(teamsFromId) {
@@ -522,18 +573,28 @@ async function saveWorkspaceSettings(e) {
   e.preventDefault();
 
   const displayName = document.getElementById("teamsDisplayName")?.value.trim();
-  const conversationId = document.getElementById("teamsGroupSelect")?.value;
+  const panel = document.getElementById("teamsGroupPanel");
+  const checkedBoxes = panel ? Array.from(panel.querySelectorAll("input[type=checkbox]:checked")) : [];
+  const conversationIds = checkedBoxes.map(cb => cb.value).filter(Boolean);
   const manualFromId = document.getElementById("teamsFromId")?.value.trim();
   const stored = await chrome.storage.local.get(["teamsFromId"]);
   const fromId = manualFromId || stored.teamsFromId || "";
 
-  if (!displayName || !conversationId) {
+  if (!displayName || !conversationIds.length) {
     showWorkspaceToast(t("ws_save_error"), "error");
     return;
   }
 
+  // Debug log to verify what we're saving
+  wsUiLog.log("Saving Teams config:", {
+    teamsConversationIds: conversationIds,
+    count: conversationIds.length,
+    displayName: displayName
+  });
+
   const payload = {
-    teamsConversationId: conversationId,
+    teamsConversationIds: conversationIds,
+    teamsConversationId: conversationIds[0], // keep single-id compat for legacy paths
     teamsDisplayName: displayName,
   };
   if (fromId) {
@@ -542,10 +603,12 @@ async function saveWorkspaceSettings(e) {
 
   await chrome.storage.local.set(payload);
 
+  // Verify what was saved
+  const verify = await chrome.storage.local.get(["teamsConversationIds"]);
+  wsUiLog.log("Verified saved teamsConversationIds:", verify.teamsConversationIds);
+
   await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" }, () =>
-      resolve(),
-    );
+    chrome.runtime.sendMessage({ type: "SYNC_TEAMS_CREDENTIALS" }, () => resolve());
   });
 
   showWorkspaceToast(t("ws_save_success"));

@@ -612,25 +612,43 @@ function isTeamsConfigApiError(error) {
 }
 
 async function handleSendTeamsMessage(messageText) {
-  if (API_ENABLED) {
-    const apiResult = await apiSendTeamsMessage(messageText);
-    if (apiResult.success) return { success: true };
-    if (apiResult.error && !isTeamsConfigApiError(apiResult.error)) {
-      return { success: false, error: apiResult.error };
-    }
-    teamsCaptureLog(
-      "API send skipped, trying local Teams send:",
-      apiResult.error,
-    );
-  }
+  // DISABLED: API bypass for multi-group support (API only sends to single group)
+  // if (API_ENABLED) {
+  //   const apiResult = await apiSendTeamsMessage(messageText);
+  //   if (apiResult.success) return { success: true };
+  //   if (apiResult.error && !isTeamsConfigApiError(apiResult.error)) {
+  //     return { success: false, error: apiResult.error };
+  //   }
+  //   teamsCaptureLog(
+  //     "API send skipped, trying local Teams send:",
+  //     apiResult.error,
+  //   );
+  // }
 
   const config = await chrome.storage.local.get({
+    teamsConversationIds: [],
     teamsConversationId: "",
     teamsFromId: "",
     teamsDisplayName: "",
     teamsSkypeToken: "",
     teamsTokenExpiry: 0,
   });
+
+  // Debug log to see what we loaded
+  const eodLog = typeof createLogger === "function" ? createLogger("[EOD]") : { log() { }, warn() { } };
+  eodLog.log("handleSendTeamsMessage loaded config:", {
+    teamsConversationIds: config.teamsConversationIds,
+    teamsConversationId: config.teamsConversationId,
+    idsIsArray: Array.isArray(config.teamsConversationIds),
+    idsLength: config.teamsConversationIds?.length || 0
+  });
+
+  // Resolve the list of conversation IDs to send to
+  const conversationIds = Array.isArray(config.teamsConversationIds) && config.teamsConversationIds.length
+    ? config.teamsConversationIds
+    : config.teamsConversationId ? [config.teamsConversationId] : [];
+
+  eodLog.log("Resolved conversationIds to send to:", conversationIds);
 
   let teamsFromId = config.teamsFromId;
   if (!teamsFromId && config.teamsSkypeToken) {
@@ -640,10 +658,10 @@ async function handleSendTeamsMessage(messageText) {
     }
   }
 
-  if (!config.teamsConversationId || !config.teamsDisplayName) {
+  if (!conversationIds.length || !config.teamsDisplayName) {
     const missing = [];
     if (!config.teamsDisplayName) missing.push("display name");
-    if (!config.teamsConversationId) missing.push("Teams group");
+    if (!conversationIds.length) missing.push("Teams group");
     return {
       success: false,
       error: `Missing Teams configuration (${missing.join(", ")}). Open Workspace tab, pick a group, enter your name, and click Save.`,
@@ -665,67 +683,84 @@ async function handleSendTeamsMessage(messageText) {
     };
   }
 
-  const apiUrl = `https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/${encodeURIComponent(config.teamsConversationId)}/messages`;
-  const timestamp = new Date().toISOString();
-  const clientMessageId = String(
-    BigInt(Date.now()) * 1000000n + BigInt(Math.floor(Math.random() * 1000000)),
-  );
+  // Send to all selected groups, collect any errors
+  const errors = [];
+  const successfulSends = [];
 
-  const payload = {
-    type: "Message",
-    conversationid: config.teamsConversationId,
-    conversationLink: apiUrl,
-    from: teamsFromId,
-    fromUserId: teamsFromId,
-    composetime: timestamp,
-    originalarrivaltime: timestamp,
-    content: `<p>${escapeHtml(messageText)}</p>`,
-    messagetype: "RichText/Html",
-    contenttype: "Text",
-    imdisplayname: config.teamsDisplayName,
-    clientmessageid: clientMessageId,
-    callId: "",
-    state: 0,
-    version: "0",
-    amsreferences: [],
-    properties: {
-      importance: "",
-      subject: "",
-      title: "",
-      cards: "[]",
-      links: "[]",
-      mentions: "[]",
-      onbehalfof: null,
-      files: "[]",
-      policyViolation: null,
-      formatVariant: "TEAMS",
-    },
-    crossPostChannels: [],
-  };
+  for (const conversationId of conversationIds) {
+    eodLog.log(`Sending to conversation ${conversationId}...`);
 
-  try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        authentication: `skypetoken=${config.teamsSkypeToken}`,
-        behavioroverride: "redirectAs404",
+    const apiUrl = `https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/${encodeURIComponent(conversationId)}/messages`;
+    const timestamp = new Date().toISOString();
+    const clientMessageId = String(
+      BigInt(Date.now()) * 1000000n + BigInt(Math.floor(Math.random() * 1000000)),
+    );
+
+    const payload = {
+      type: "Message",
+      conversationid: conversationId,
+      conversationLink: apiUrl,
+      from: teamsFromId,
+      fromUserId: teamsFromId,
+      composetime: timestamp,
+      originalarrivaltime: timestamp,
+      content: `<p>${escapeHtml(messageText)}</p>`,
+      messagetype: "RichText/Html",
+      contenttype: "Text",
+      imdisplayname: config.teamsDisplayName,
+      clientmessageid: clientMessageId,
+      callId: "",
+      state: 0,
+      version: "0",
+      amsreferences: [],
+      properties: {
+        importance: "",
+        subject: "",
+        title: "",
+        cards: "[]",
+        links: "[]",
+        mentions: "[]",
+        onbehalfof: null,
+        files: "[]",
+        policyViolation: null,
+        formatVariant: "TEAMS",
       },
-      body: JSON.stringify(payload),
-    });
+      crossPostChannels: [],
+    };
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return {
-        success: false,
-        error: `HTTP ${response.status}: ${errorText.substring(0, 100)}`,
-      };
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authentication: `skypetoken=${config.teamsSkypeToken}`,
+          behavioroverride: "redirectAs404",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const errorMsg = `${conversationId.slice(0, 20)}… HTTP ${response.status}: ${errorText.substring(0, 80)}`;
+        errors.push(errorMsg);
+        eodLog.warn(`Failed to send to ${conversationId}:`, errorMsg);
+      } else {
+        successfulSends.push(conversationId);
+        eodLog.log(`✓ Successfully sent to ${conversationId}`);
+      }
+    } catch (error) {
+      const errorMsg = `${conversationId.slice(0, 20)}… Network error: ${error.message}`;
+      errors.push(errorMsg);
+      eodLog.warn(`Failed to send to ${conversationId}:`, errorMsg);
     }
-
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: `Network error: ${error.message}` };
   }
+
+  eodLog.log(`Send complete: ${successfulSends.length}/${conversationIds.length} successful`);
+
+  if (errors.length === 0) return { success: true };
+  if (errors.length === conversationIds.length) return { success: false, error: errors.join("; ") };
+  // Partial success
+  return { success: true, partialErrors: errors };
 }
 
 function escapeHtml(text) {

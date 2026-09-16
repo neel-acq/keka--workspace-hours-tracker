@@ -283,10 +283,16 @@
                 <input type="text" id="teamsFromId" class="form-input" placeholder="8:live:.cid.xxxxx">
               </div>
               <div class="form-group">
-                <label for="teamsGroupSelect" data-i18n="ws_group">Teams Group</label>
-                <select id="teamsGroupSelect" class="form-input" required>
-                  <option value="" data-i18n="ws_groups_loading">Loading groups...</option>
-                </select>
+                <label data-i18n="ws_group">Teams Group</label>
+                <div id="teamsGroupMultiSelect" class="multi-select-dropdown">
+                  <div class="multi-select-trigger" id="teamsGroupTrigger" tabindex="0" role="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="multi-select-label" id="teamsGroupLabel" data-i18n="ws_groups_loading">Loading groups...</span>
+                    <span class="multi-select-arrow">▾</span>
+                  </div>
+                  <div class="multi-select-panel" id="teamsGroupPanel" role="listbox" aria-multiselectable="true" style="display:none;">
+                    <!-- Options injected dynamically -->
+                  </div>
+                </div>
               </div>
               <button type="submit" class="btn btn-primary btn-block" data-i18n="ws_save_config">Save
                 Configuration</button>

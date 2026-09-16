@@ -784,8 +784,8 @@ function startCountdown() {
             if (!state) return;
 
             const { firstInTime, lastOutTime, isCurrentlyWorking, isEarlyEntry,
-                    totalEffectiveSeconds, totalBreakSeconds, grossSeconds,
-                    targetExitTime, isComplete } = state;
+                totalEffectiveSeconds, totalBreakSeconds, grossSeconds,
+                targetExitTime, isComplete } = state;
 
             const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
             let isFirstHalf = false;
@@ -1215,11 +1215,12 @@ function renderNotifications() {
     container.innerHTML = '';
 
     // Get default notifications from storage
-    chrome.storage.local.get(['defaultNotifications'], (data) => {
+    chrome.storage.local.get(['defaultNotifications', 'notifyAfter5Min'], (data) => {
         const defaultNotifs = data.defaultNotifications || {
             effective: { message: '🎉 8 Hours Complete (Effective)! Great work!' },
-            gross: { message: '� TaHrget Exit Time! You can leave now.' }
+            gross: { message: '🎯 Target Exit Time! You can leave now.' }
         };
+        const notifyAfter5Min = data.notifyAfter5Min !== false ? true : false; // default ON
 
         // Render default notifications (non-removable)
         const defaultSection = document.createElement('div');
@@ -1265,9 +1266,19 @@ function renderNotifications() {
                     <label class="field-label">💬 Message</label>
                     <input type="text" class="field-input default-notif-input" data-type="gross" value="${defaultNotifs.gross.message}" placeholder="Enter notification message">
                 </div>
+                <div class="preference-item" style="margin-top:8px;">
+                    <div class="preference-label">
+                        <span class="preference-icon">⏱️</span>
+                        <span class="preference-text">Notify 5 min after target exit</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="notifyAfter5MinToggle" ${notifyAfter5Min ? 'checked' : ''}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
                 <div class="field-info">
                     <span class="info-icon">ℹ️</span>
-                    <span class="info-text">Triggers when BOTH conditions are met: 9 gross hours passed AND 8 effective hours completed</span>
+                    <span class="info-text">ON: notify 5 min after target exit time &nbsp;|&nbsp; OFF: notify exactly at target exit time</span>
                 </div>
             </div>
         `;
@@ -1283,6 +1294,14 @@ function renderNotifications() {
                 chrome.storage.local.set({ defaultNotifications: defaultNotifs });
             });
         });
+
+        // Notify after 5 min toggle
+        const notify5Toggle = container.querySelector('#notifyAfter5MinToggle');
+        if (notify5Toggle) {
+            notify5Toggle.addEventListener('change', (e) => {
+                chrome.storage.local.set({ notifyAfter5Min: e.target.checked });
+            });
+        }
 
         // Render custom notifications
         if (notifications.length > 0) {

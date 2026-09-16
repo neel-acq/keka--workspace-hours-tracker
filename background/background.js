@@ -413,7 +413,7 @@ async function checkEffectiveHoursAndNotify() {
 
 // Check if target exit conditions are met
 async function checkTargetExitAndNotify() {
-    chrome.storage.local.get(['scrapedAttendance', 'targetGrossTime', 'targetExitNotificationSent', 'isEarlyEntry'], (data) => {
+    chrome.storage.local.get(['scrapedAttendance', 'targetGrossTime', 'targetExitNotificationSent', 'isEarlyEntry', 'notifyAfter5Min'], (data) => {
         // Skip if notification already sent today
         if (data.targetExitNotificationSent) {
             chrome.alarms.clear('check_target_exit');
@@ -434,10 +434,12 @@ async function checkTargetExitAndNotify() {
         const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
         const requiredEffectiveHours = hasLeave ? 4 : 8;
 
-        // Check condition 1: Has target time passed?
+        // Check condition 1: Has target time (+ optional 5 min delay) passed?
         const targetTime = new Date(data.targetGrossTime);
+        const delayMs = data.notifyAfter5Min !== false ? 5 * 60 * 1000 : 0; // default ON = +5 min
+        const effectiveTargetTime = new Date(targetTime.getTime() + delayMs);
         const now = new Date();
-        const targetTimeReached = now >= targetTime;
+        const targetTimeReached = now >= effectiveTargetTime;
 
         // Check condition 2: Has required effective hours been completed?
         const effectiveHours = calculateEffectiveHours(todayEntry);
@@ -512,7 +514,7 @@ function checkAndSetAlarm() {
                 const inDate = new Date(data.inTime);
                 exitTime = new Date(inDate.getTime() + 9 * 60 * 60 * 1000);
             }
-            
+
             const notificationTime = new Date(exitTime.getTime() - 10 * 60 * 1000);
             const now = new Date();
 
@@ -634,15 +636,21 @@ function setupDefaultNotifications(effectiveTimeStr, grossTimeStr, effectiveMess
     // Start monitoring for target exit
     const grossTime = new Date(grossTimeStr);
     if (grossTime > now) {
-        // Set alarm at the target exit time to check conditions
-        chrome.alarms.create('target_exit_notification', {
-            when: grossTime.getTime()
-        });
+        // Read notifyAfter5Min setting to decide when to fire the alarm
+        chrome.storage.local.get(['notifyAfter5Min'], (prefs) => {
+            const delayMs = prefs.notifyAfter5Min !== false ? 5 * 60 * 1000 : 0; // default ON = +5 min
+            const alarmTime = new Date(grossTime.getTime() + delayMs);
 
-        // Also check every minute after 7.5 hours in case effective hours complete after target time
-        chrome.alarms.create('check_target_exit', {
-            delayInMinutes: 1,
-            periodInMinutes: 1
+            // Set alarm at the (possibly delayed) exit time to check conditions
+            chrome.alarms.create('target_exit_notification', {
+                when: alarmTime.getTime()
+            });
+
+            // Also check every minute in case effective hours complete after target time
+            chrome.alarms.create('check_target_exit', {
+                delayInMinutes: 1,
+                periodInMinutes: 1
+            });
         });
     }
 }
