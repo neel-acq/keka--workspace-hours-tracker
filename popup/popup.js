@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('windowModeSelect').addEventListener('change', handleWindowModeChange);
     document.getElementById('languageSelect').addEventListener('change', handleLanguageChange);
     document.getElementById('funnyTextToggle').addEventListener('change', handleFunnyTextToggle);
+    document.getElementById('notifyAfter5MinToggleGeneral').addEventListener('change', handleNotifyAfter5MinToggle);
 
 
 });
@@ -1133,7 +1134,7 @@ function parseTime12Hour(timeStr) {
 
 // Load Preferences
 function loadPreferences() {
-    chrome.storage.local.get(['darkMode', 'notificationsEnabled', 'autoSyncEnabled', 'badgeCountdownEnabled', 'language', 'funnyTextMode', 'windowMode'], (data) => {
+    chrome.storage.local.get(['darkMode', 'notificationsEnabled', 'autoSyncEnabled', 'badgeCountdownEnabled', 'language', 'funnyTextMode', 'windowMode', 'notifyAfter5Min'], (data) => {
         document.getElementById('darkModeToggle').checked = data.darkMode || false;
         document.getElementById('notificationsToggle').checked = data.notificationsEnabled !== false;
         document.getElementById('autoSyncToggle').checked = data.autoSyncEnabled !== false;
@@ -1146,6 +1147,10 @@ function loadPreferences() {
         const funnyToggle = document.getElementById('funnyTextToggle');
         if (funnyToggle) {
             funnyToggle.checked = data.funnyTextMode !== false;
+        }
+        const notifyAfter5MinToggle = document.getElementById('notifyAfter5MinToggleGeneral');
+        if (notifyAfter5MinToggle) {
+            notifyAfter5MinToggle.checked = data.notifyAfter5Min !== false; // default ON
         }
     });
 }
@@ -1202,6 +1207,12 @@ function handleFunnyTextToggle(e) {
     if (workspacePage?.classList.contains('active') && typeof loadWorkspaceData === 'function') {
         loadWorkspaceData();
     }
+}
+
+// Handle Notify After 5 Min Toggle
+function handleNotifyAfter5MinToggle(e) {
+    const enabled = e.target.checked;
+    chrome.storage.local.set({ notifyAfter5Min: enabled });
 }
 
 function loadNotifications() {
@@ -1266,19 +1277,9 @@ function renderNotifications() {
                     <label class="field-label">💬 Message</label>
                     <input type="text" class="field-input default-notif-input" data-type="gross" value="${defaultNotifs.gross.message}" placeholder="Enter notification message">
                 </div>
-                <div class="preference-item" style="margin-top:8px;">
-                    <div class="preference-label">
-                        <span class="preference-icon">⏱️</span>
-                        <span class="preference-text">Notify 5 min after target exit</span>
-                    </div>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="notifyAfter5MinToggle" ${notifyAfter5Min ? 'checked' : ''}>
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
                 <div class="field-info">
                     <span class="info-icon">ℹ️</span>
-                    <span class="info-text">ON: notify 5 min after target exit time &nbsp;|&nbsp; OFF: notify exactly at target exit time</span>
+                    <span class="info-text">Triggers when you reach your target exit time</span>
                 </div>
             </div>
         `;
@@ -1294,14 +1295,6 @@ function renderNotifications() {
                 chrome.storage.local.set({ defaultNotifications: defaultNotifs });
             });
         });
-
-        // Notify after 5 min toggle
-        const notify5Toggle = container.querySelector('#notifyAfter5MinToggle');
-        if (notify5Toggle) {
-            notify5Toggle.addEventListener('change', (e) => {
-                chrome.storage.local.set({ notifyAfter5Min: e.target.checked });
-            });
-        }
 
         // Render custom notifications
         if (notifications.length > 0) {

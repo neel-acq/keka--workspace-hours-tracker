@@ -906,11 +906,13 @@ async function resetWorkspaceDailyFlags() {
   const data = await chrome.storage.local.get([
     "lastNotificationResetDate",
     "workspaceStopAlertSentDate",
+    "workspace8hNotificationSent",
   ]);
 
   if (data.lastNotificationResetDate !== today) {
     await chrome.storage.local.set({
       workspaceStopAlertSentDate: "",
+      workspace8hNotificationSent: "",
       lastNotificationResetDate: today,
     });
   }
@@ -1033,6 +1035,32 @@ async function checkWorkspaceTimerAlerts() {
       suggestedMessage,
       actions: [],
     });
+  }
+
+  // Workspace 8 hours complete notification (no timer required, once per day, with 5 min delay)
+  const workspace8hSentDate = await chrome.storage.local.get(['workspace8hNotificationSent']);
+  if (
+    totalHours >= 8 &&
+    workspace8hSentDate.workspace8hNotificationSent !== today
+  ) {
+    await chrome.storage.local.set({ workspace8hNotificationSent: today });
+
+    // Get delay setting
+    const { notifyAfter5Min } = await chrome.storage.local.get({ notifyAfter5Min: true });
+    const delayMs = notifyAfter5Min !== false ? 5 * 60 * 1000 : 0;
+
+    // Schedule notification with delay
+    setTimeout(async () => {
+      const lang = await getAlertLocale();
+      await dispatchTrackerAlert({
+        id: "workspace_8h_complete",
+        variant: "info",
+        title: "🕐 Workspace 8 Hours Complete",
+        label: alertT("alert_reminder_label", lang),
+        message: "You've logged 8 hours in Workspace! Great work! 🎉",
+        actions: [{ id: "dismiss", label: alertT("alert_dismiss", lang) }],
+      });
+    }, delayMs);
   }
 }
 

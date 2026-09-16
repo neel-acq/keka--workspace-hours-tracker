@@ -361,7 +361,7 @@ function calculateEffectiveHours(todayEntry) {
 
 // Check effective hours and send notification when 8h (or 4h for leave) is reached
 async function checkEffectiveHoursAndNotify() {
-    chrome.storage.local.get(['scrapedAttendance', 'effective8hNotificationSent'], (data) => {
+    chrome.storage.local.get(['scrapedAttendance', 'effective8hNotificationSent', 'notifyAfter5Min'], (data) => {
         // Skip if notification already sent today
         if (data.effective8hNotificationSent) {
             chrome.alarms.clear('check_effective_hours');
@@ -378,34 +378,51 @@ async function checkEffectiveHoursAndNotify() {
 
         const effectiveHours = calculateEffectiveHours(todayEntry);
 
-        // If effective hours >= requiredEffectiveHours, send notification
+        // If effective hours >= requiredEffectiveHours, schedule notification
         if (effectiveHours >= requiredEffectiveHours) {
             // Set flag IMMEDIATELY to prevent race conditions
             chrome.storage.local.set({ effective8hNotificationSent: true }, () => {
                 // Stop monitoring for 8h
                 chrome.alarms.clear('check_effective_hours');
 
-                // Then send notification
-                chrome.storage.local.get(['defaultNotificationMessages'], async (msgData) => {
-                    const lang = await getAlertLocale();
-                    let title = alertT('alert_effective_title', lang);
-                    let message = msgData.defaultNotificationMessages?.effective
-                        || (title + '! Great work!');
+                // Calculate delay: 5 min if enabled, otherwise immediate
+                const delayMs = data.notifyAfter5Min !== false ? 5 * 60 * 1000 : 0;
 
-                    if (hasLeave) {
-                        title = title.replace('8', '4');
-                        message = message.replace('8', '4');
-                    }
+                // Also check for 7 PM constraint
+                const now = new Date();
+                const sevenPM = new Date();
+                sevenPM.setHours(19, 0, 0, 0);
 
-                    dispatchTrackerAlert({
-                        id: 'effective_8h',
-                        variant: 'info',
-                        title: title,
-                        label: alertT('alert_reminder_label', lang),
-                        message,
-                        actions: [{ id: 'dismiss', label: alertT('alert_dismiss', lang) }]
+                // Calculate final delay: max of configured delay and time until 7 PM
+                let finalDelay = delayMs;
+                if (now < sevenPM) {
+                    const timeUntil7PM = sevenPM.getTime() - now.getTime();
+                    finalDelay = Math.max(delayMs, timeUntil7PM);
+                }
+
+                // Schedule notification
+                setTimeout(() => {
+                    chrome.storage.local.get(['defaultNotificationMessages'], async (msgData) => {
+                        const lang = await getAlertLocale();
+                        let title = alertT('alert_effective_title', lang);
+                        let message = msgData.defaultNotificationMessages?.effective
+                            || (title + '! Great work!');
+
+                        if (hasLeave) {
+                            title = title.replace('8', '4');
+                            message = message.replace('8', '4');
+                        }
+
+                        dispatchTrackerAlert({
+                            id: 'effective_8h',
+                            variant: 'info',
+                            title: title,
+                            label: alertT('alert_reminder_label', lang),
+                            message,
+                            actions: [{ id: 'dismiss', label: alertT('alert_dismiss', lang) }]
+                        });
                     });
-                });
+                }, finalDelay);
             });
         }
     });
@@ -434,16 +451,14 @@ async function checkTargetExitAndNotify() {
         const hasLeave = todayEntry?.leaveDetails && todayEntry.leaveDetails.length > 0;
         const requiredEffectiveHours = hasLeave ? 4 : 8;
 
-        // Check condition 1: Has target time (+ optional 5 min delay) passed?
-        const targetTime = new Date(data.targetGrossTime);
-        const delayMs = data.notifyAfter5Min !== false ? 5 * 60 * 1000 : 0; // default ON = +5 min
-        const effectiveTargetTime = new Date(targetTime.getTime() + delayMs);
-        const now = new Date();
-        const targetTimeReached = now >= effectiveTargetTime;
-
         // Check condition 2: Has required effective hours been completed?
         const effectiveHours = calculateEffectiveHours(todayEntry);
         const effectiveHoursComplete = effectiveHours >= requiredEffectiveHours;
+
+        // Check condition 1: Has target time passed?
+        const targetTime = new Date(data.targetGrossTime);
+        const now = new Date();
+        const targetTimeReached = now >= targetTime;
 
         const isEarlyEntry = data.isEarlyEntry || false;
         const canExit = targetTimeReached && effectiveHoursComplete;
@@ -456,33 +471,50 @@ async function checkTargetExitAndNotify() {
                 chrome.alarms.clear('check_target_exit');
                 chrome.alarms.clear('target_exit_notification');
 
-                // Then send notification
-                chrome.storage.local.get(['defaultNotificationMessages'], async (msgData) => {
-                    const lang = await getAlertLocale();
-                    let message = msgData.defaultNotificationMessages?.gross
-                        || (isEarlyEntry
-                            ? alertT('alert_exit_message_early', lang)
-                            : alertT('alert_target_exit_title', lang) + '! You can leave now.');
+                // Calculate delay: 5 min if enabled, otherwise immediate
+                const delayMs = data.notifyAfter5Min !== false ? 5 * 60 * 1000 : 0;
 
-                    if (hasLeave) {
-                        const firstLeave = todayEntry.leaveDetails[0];
-                        const isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
-                        if (!isFirstHalf) {
-                            message = message.replace('7 PM', '3 PM');
-                            message = message.replace('7 વાગ્યા', '3 વાગ્યા');
-                            message = message.replace('7 बजे', '3 बजे');
+                // Also check for 7 PM constraint
+                const now = new Date();
+                const sevenPM = new Date();
+                sevenPM.setHours(19, 0, 0, 0);
+
+                // Calculate final delay: max of configured delay and time until 7 PM
+                let finalDelay = delayMs;
+                if (now < sevenPM) {
+                    const timeUntil7PM = sevenPM.getTime() - now.getTime();
+                    finalDelay = Math.max(delayMs, timeUntil7PM);
+                }
+
+                // Schedule notification
+                setTimeout(() => {
+                    chrome.storage.local.get(['defaultNotificationMessages'], async (msgData) => {
+                        const lang = await getAlertLocale();
+                        let message = msgData.defaultNotificationMessages?.gross
+                            || (isEarlyEntry
+                                ? alertT('alert_exit_message_early', lang)
+                                : alertT('alert_target_exit_title', lang) + '! You can leave now.');
+
+                        if (hasLeave) {
+                            const firstLeave = todayEntry.leaveDetails[0];
+                            const isFirstHalf = firstLeave?.isFirstHalfLeave === true || todayEntry.isFirstHalfLeave === true;
+                            if (!isFirstHalf) {
+                                message = message.replace('7 PM', '3 PM');
+                                message = message.replace('7 વાગ્યા', '3 વાગ્યા');
+                                message = message.replace('7 बजे', '3 बजे');
+                            }
                         }
-                    }
 
-                    dispatchTrackerAlert({
-                        id: 'target_exit',
-                        variant: 'info',
-                        title: alertT('alert_target_exit_title', lang),
-                        label: alertT('alert_reminder_label', lang),
-                        message,
-                        actions: [{ id: 'dismiss', label: alertT('alert_dismiss', lang) }]
+                        dispatchTrackerAlert({
+                            id: 'target_exit',
+                            variant: 'info',
+                            title: alertT('alert_target_exit_title', lang),
+                            label: alertT('alert_reminder_label', lang),
+                            message,
+                            actions: [{ id: 'dismiss', label: alertT('alert_dismiss', lang) }]
+                        });
                     });
-                });
+                }, finalDelay);
             });
         }
     });
@@ -538,6 +570,7 @@ function resetDailyNotificationFlags() {
             chrome.storage.local.set({
                 effective8hNotificationSent: false,
                 targetExitNotificationSent: false,
+                workspace8hNotificationSent: '',
                 defaultNotificationsSetupDate: '',
                 lastWorkspaceStartAlertAt: 0,
                 workspaceStopAlertSentDate: '',
